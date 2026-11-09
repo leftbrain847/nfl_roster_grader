@@ -28,6 +28,10 @@
     "src",
     "worker",
     "test",
-    "vite.config.ts"
+    "vite.config.ts",
+    "data-source.ts"
+  ],
+  "exclude": [
+    "test/refresh.test.ts"
   ]
 }
