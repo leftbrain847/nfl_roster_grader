@@ -162,7 +162,7 @@ function statLine(p: PlayerResult): HTMLElement {
 function contractText(c: PlayerContract | null): string {
   if (!c) return 'No contract on file';
   const terms = `$${c.apyMillions.toFixed(1)}M/yr · ${(100 * c.capPct).toFixed(1)}% of cap at signing · thru ${c.lastYear}`;
-  return c.tradeCostMillions === null ? terms : `${terms} · trade cost ≈ $${c.tradeCostMillions.toFixed(2)}M`;
+  return c.baseSalaryLeftMillions === null ? terms : `${terms} · base salary left ≈ $${c.baseSalaryLeftMillions.toFixed(2)}M`;
 }
 
 function playerCard(p: PlayerResult, opts: { showTeam: boolean; rank?: number }): HTMLElement {
@@ -361,7 +361,7 @@ function footer(): HTMLElement {
     el('p', { text: `Verdict: playoff odds from ${PLAYOFF_SIM.simulations.toLocaleString('en-US')} simulated finishes (team strength blends adjusted EPA with point differential; standings ties broken at random, not by NFL tiebreakers). Odds ${pct(VERDICT.contenderOdds)}+ buy for a unit graded under ${VERDICT.holeGrade}; ${pct(VERDICT.sellerOdds)} or less sell; in between, the schedule left decides.` }),
     el('p', { text: 'Player scores: percentile within the position of a weighted mix of stat percentiles, among players over a per-game volume minimum. Offensive linemen are graded by team instead (Players, then OL); specialists are not ranked. Open data has no good per-player stat for either.' }),
     el('p', { text: 'Offensive line: pass protection = QB pressures (PFR) per dropback; run blocking = rushing yards before contact per carry (PFR). When a buyer\'s weakest unit is pass O or rush O, it shops for the weaker half: the line, or the pass catchers (EPA per non-sack attempt) or backs (yards after contact per carry).' }),
-    el('p', { text: `Trade cost: the rest of this season's base salary, paid in ${TRADE_COST.payWeeks} weekly checks (the signing bonus stays with the old team). Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
+    el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
     data.ratingsCredit ? el('p', { text: `Ratings: ${data.ratingsCredit}` }) : null,

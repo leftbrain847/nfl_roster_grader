@@ -174,7 +174,7 @@ const VOLUME_WORDS = { dropbacks: 'dropbacks', carries: 'carries', targets: 'tar
 export interface RankOptions {
   /** Team games played so far, for the per-game qualifying minimums. */
   teamGames: Record<string, number>;
-  /** Regular-season weeks played, for the trade cost. */
+  /** Regular-season weeks played, for the base salary left. */
   weeksPlayed: number;
   ratings?: Record<string, number>;
   ratingsCfg?: RatingsSourceConfig;

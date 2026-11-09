@@ -68,6 +68,47 @@ export function gradeLines(raw: LineRaw, teams: string[]): Record<string, Record
 
 export interface LineStarter { id: string; name: string; team: string; depth: string; status: string; snapShare: number }
 
+export interface LinemanMatch {
+  /** Roster gsis id -> PFR id in the snap counts. */
+  ids: Map<string, string>;
+  /** Roster linemen with no confident match (names, for the refresh log). */
+  unmatched: string[];
+}
+
+/**
+ * The roster file has no PFR id for linemen, so they are matched to snap counts by name, always on the same team
+ * (a snap row for the player's current team):
+ * 1. the full normalized name, if exactly one PFR id has it on that team;
+ * 2. else the last name, if exactly one lineman on that team has it ("Sam Cosmi" = "Samuel Cosmi").
+ * Anything ambiguous is left unmatched rather than guessed.
+ */
+export function matchLinemen(inp: ModelInputs, cfg: LineTargetConfig = LINE_TARGETS): LinemanMatch {
+  const full = new Map<string, Set<string>>();
+  const last = new Map<string, Set<string>>();
+  const add = (m: Map<string, Set<string>>, k: string, v: string): void => {
+    m.set(k, (m.get(k) ?? new Set()).add(v));
+  };
+  for (const r of inp.snaps) {
+    if (!r.n) continue;
+    const n = normName(r.n);
+    add(full, `${n}|${r.t}`, r.p);
+    add(last, `${lastName(n)}|${r.t}`, r.p);
+  }
+  const one = (s: Set<string> | undefined): string | undefined => (s?.size === 1 ? [...s][0] : undefined);
+  const ids = new Map<string, string>();
+  const unmatched: string[] = [];
+  for (const p of inp.roster) {
+    if (!cfg.depth.includes(p.depth)) continue;
+    const n = normName(p.name);
+    const pfr = p.pfr ?? one(full.get(`${n}|${p.team}`)) ?? one(last.get(`${lastName(n)}|${p.team}`));
+    if (pfr) ids.set(p.gsis, pfr);
+    else unmatched.push(`${p.name} (${p.team})`);
+  }
+  return { ids, unmatched };
+}
+
+const lastName = (normalized: string): string => normalized.split(' ').pop() ?? '';
+
 /** Offensive-line starters: OL by depth chart, on the current roster, over the snap-share threshold. */
 export function lineStarters(inp: ModelInputs, cfg: LineTargetConfig = LINE_TARGETS): LineStarter[] {
   // team offense snaps per game = the most any one player on that team played (the QB and line play nearly all)
@@ -81,14 +122,11 @@ export function lineStarters(inp: ModelInputs, cfg: LineTargetConfig = LINE_TARG
     m.team += teamSnaps.get(`${r.t}|${r.g}`) ?? 0;
     mine.set(r.p, m);
   }
-  // the roster file has no PFR id for linemen: match them to snap counts by name, only where the name is unambiguous
-  const byName = new Map<string, Set<string>>();
-  for (const r of inp.snaps) if (r.n) byName.set(normName(r.n), (byName.get(normName(r.n)) ?? new Set()).add(r.p));
+  const ids = matchLinemen(inp, cfg).ids;
   const out: LineStarter[] = [];
   for (const p of inp.roster) {
     if (!cfg.depth.includes(p.depth)) continue;
-    const ids = byName.get(normName(p.name));
-    const pfr = p.pfr ?? (ids?.size === 1 ? [...ids][0] : undefined);
+    const pfr = ids.get(p.gsis);
     if (!pfr) continue;
     const m = mine.get(pfr);
     if (!m || m.team <= 0) continue;

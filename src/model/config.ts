@@ -391,13 +391,13 @@ export interface LineTargetConfig {
 export const LINE_TARGETS: LineTargetConfig = { depth: ['T', 'G', 'C', 'OT', 'OG', 'OL'], starterShare: 0.6, perTeam: 5, perSeller: 2 };
 
 // ---------------------------------------------------------------------------------------------------------------
-// Contracts: what a trade costs the buyer
+// Contracts: base salary a buyer takes on
 // ---------------------------------------------------------------------------------------------------------------
 
 export interface TradeCostConfig {
   /**
    * Base salary is paid in this many weekly checks over the regular season; a team acquiring a player owes the
-   * checks left. Trade cost = this season's base salary x (payWeeks - weeks played) / payWeeks. Signing bonus
+   * checks left. Base salary left = this season's base salary x (payWeeks - weeks played) / payWeeks. Signing bonus
    * proration stays with the old team, so it isn't counted.
    */
   payWeeks: number;

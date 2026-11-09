@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { RATINGS_SOURCE, type RatingsSourceConfig } from '../src/model/config.ts';
 import { buildModel } from '../src/model/index.ts';
+import { matchLinemen } from '../src/model/line.ts';
 import { parseRatings } from '../src/model/ratings.ts';
 import type { Game, ModelInputs, ModelOutput, SourceStatus } from '../src/model/types.ts';
 import { extract, type Extracted, type PbpData } from './extract.ts';
@@ -226,6 +227,8 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
     ratings,
   };
   const dataAsOf = [...used.values()].map((s) => s.lastModified ?? '').filter((d) => d && d <= opts.today).sort().pop() ?? opts.today;
+  const linemen = matchLinemen(inputs);
+  log(`linemen matched to snap counts: ${linemen.ids.size}; no confident match (mostly linemen with no snaps yet): ${linemen.unmatched.length}${linemen.unmatched.length ? ` (${linemen.unmatched.slice(0, 20).join(', ')}${linemen.unmatched.length > 20 ? ', ...' : ''})` : ''}`);
   const output = buildModel(inputs, { sources: statuses, dataAsOf, ratingsCfg });
   const abs = join(opts.root, OUTPUT_FILE);
   mkdirSync(dirname(abs), { recursive: true });

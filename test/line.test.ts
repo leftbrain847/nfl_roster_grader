@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LINE_TARGETS, TRADE_COST } from '../src/model/config.ts';
 import { playerContract } from '../src/model/contracts.ts';
-import { gradeLine, lineRaw, lineStarters, lineTargets, normName } from '../src/model/line.ts';
+import { gradeLine, lineRaw, lineStarters, lineTargets, matchLinemen, normName } from '../src/model/line.ts';
 import type { ModelInputs, RosterPlayer } from '../src/model/types.ts';
 
 const empty: ModelInputs = {
@@ -81,19 +81,39 @@ describe('line starters without PFR ids (the roster file has none for linemen)',
       snaps: [
         { p: 'p1', g: 'g1', t: 'SEL', off: 60, def: 0, n: 'DAndre Smith' },
         { p: 'p2', g: 'g1', t: 'SEL', off: 60, def: 0, n: 'John Doe' },
-        { p: 'p3', g: 'g2', t: 'OTH', off: 60, def: 0, n: 'John Doe' }, // a second John Doe: ambiguous, skipped
+        { p: 'p3', g: 'g1', t: 'SEL', off: 60, def: 0, n: 'John Doe' }, // a second John Doe on the team: ambiguous
       ],
     };
     expect(normName("D'Andre Smith Jr.")).toBe(normName('DAndre Smith'));
     expect(lineStarters(inp).map((s) => s.id)).toEqual(['a']);
+    expect(matchLinemen(inp).unmatched).toEqual(['John Doe (SEL)']);
+  });
+
+  it('falls back to a last name unique among the team\'s linemen, and never matches across teams', () => {
+    const inp: ModelInputs = {
+      ...empty,
+      roster: [
+        { gsis: 'a', pfr: null, name: 'Sam Cosmi', team: 'WAS', depth: 'G', week: 9, status: 'ACT' },
+        { gsis: 'b', pfr: null, name: 'DJ Glaze', team: 'LV', depth: 'T', week: 9, status: 'ACT' },
+        { gsis: 'c', pfr: null, name: 'Pat Lee', team: 'NYG', depth: 'C', week: 9, status: 'ACT' },
+      ],
+      snaps: [
+        { p: 'p1', g: 'g1', t: 'WAS', off: 60, def: 0, n: 'Samuel Cosmi' },
+        { p: 'p2', g: 'g1', t: 'LV', off: 60, def: 0, n: 'Delmar Glaze' },
+        { p: 'p3', g: 'g1', t: 'DAL', off: 60, def: 0, n: 'Pat Lee' }, // same name, other team: not him
+      ],
+    };
+    const m = matchLinemen(inp);
+    expect([...m.ids.entries()]).toEqual([['a', 'p1'], ['b', 'p2']]);
+    expect(m.unmatched).toEqual(['Pat Lee (NYG)']);
   });
 });
 
-describe('trade cost', () => {
+describe('base salary left', () => {
   it('is the base salary still to be paid this season', () => {
     const c = playerContract({ gsis: 'x', apyMillions: 20, capPct: 0.07, lastYear: 2028, baseSalaryMillions: 9 }, 9);
-    expect(c.tradeCostMillions).toBe(9 * (TRADE_COST.payWeeks - 9) / TRADE_COST.payWeeks);
-    expect(playerContract({ gsis: 'x', apyMillions: 1, capPct: 0, lastYear: 2026, baseSalaryMillions: null }, 9).tradeCostMillions).toBeNull();
-    expect(playerContract({ gsis: 'x', apyMillions: 1, capPct: 0, lastYear: 2026, baseSalaryMillions: 4 }, 25).tradeCostMillions).toBe(0);
+    expect(c.baseSalaryLeftMillions).toBe(9 * (TRADE_COST.payWeeks - 9) / TRADE_COST.payWeeks);
+    expect(playerContract({ gsis: 'x', apyMillions: 1, capPct: 0, lastYear: 2026, baseSalaryMillions: null }, 9).baseSalaryLeftMillions).toBeNull();
+    expect(playerContract({ gsis: 'x', apyMillions: 1, capPct: 0, lastYear: 2026, baseSalaryMillions: 4 }, 25).baseSalaryLeftMillions).toBe(0);
   });
 });

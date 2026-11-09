@@ -11,6 +11,6 @@ export function playerContract(c: Contract, weeksPlayed: number, cfg: TradeCostC
     capPct: c.capPct,
     lastYear: c.lastYear,
     baseSalaryMillions: c.baseSalaryMillions,
-    tradeCostMillions: c.baseSalaryMillions === null ? null : round(c.baseSalaryMillions * left, 2),
+    baseSalaryLeftMillions: c.baseSalaryMillions === null ? null : round(c.baseSalaryMillions * left, 2),
   };
 }

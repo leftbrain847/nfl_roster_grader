@@ -138,8 +138,8 @@ export interface PlayerContract {
   capPct: number;
   lastYear: number;
   baseSalaryMillions: number | null;
-  /** What the rest of this season's base salary costs a team trading for him now. */
-  tradeCostMillions: number | null;
+  /** Base salary still to be paid this season: what a team trading for him now takes on (bonuses excluded). */
+  baseSalaryLeftMillions: number | null;
 }
 
 /** An offensive-line starter on a selling team, ranked by his team's line grade (not an individual grade). */
