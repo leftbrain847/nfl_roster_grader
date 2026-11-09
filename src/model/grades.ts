@@ -10,6 +10,8 @@ export interface UnitGrades {
   /** Pass-rush and coverage ranks (1 = best) for the pass-defense need split. */
   passRushRank: Record<string, number>;
   coverageRank: Record<string, number>;
+  /** Offense EPA per non-sack pass attempt rank (1 = best): the pass-catching half of pass O. */
+  airRank: Record<string, number>;
 }
 
 export function cellsFor(teamGames: TeamGame[], play: 'pass' | 'rush'): Cell[] {
@@ -69,6 +71,14 @@ export function gradeUnits(teamGames: TeamGame[], teams: string[], cfg: AdjustCo
     rushRate.push(db ? rows.reduce((s, g) => s + g.rushHits, 0) / db : 0);
     covRate.push(covN ? rows.reduce((s, g) => s + g.covEpa, 0) / covN : 0);
   }
+  const air = teams.map((t) => {
+    const rows = teamGames.filter((g) => g.off === t);
+    const n = rows.reduce((s, g) => s + g.covN, 0);
+    return n ? rows.reduce((s, g) => s + g.covEpa, 0) / n : 0;
+  });
+  const arRank = ranks(air, true);
+  const airRank: Record<string, number> = {};
+  teams.forEach((t, i) => (airRank[t] = arRank[i] as number));
   const prRank = ranks(rushRate, true);
   const cvRank = ranks(covRate, false);
   const passRushRank: Record<string, number> = {};
@@ -77,7 +87,7 @@ export function gradeUnits(teamGames: TeamGame[], teams: string[], cfg: AdjustCo
     passRushRank[t] = prRank[i] as number;
     coverageRank[t] = cvRank[i] as number;
   });
-  return { units, fits, passRushRank, coverageRank };
+  return { units, fits, passRushRank, coverageRank, airRank };
 }
 
 /** The lowest-graded unit (ties: the order in UNIT_KEYS). */

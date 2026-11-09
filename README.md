@@ -29,7 +29,7 @@ All from the [nflverse-data](https://github.com/nflverse/nflverse-data) GitHub r
 | Next Gen Stats | `nextgen_stats/ngs_{passing,receiving,rushing}.csv.gz` | CPOE, separation, YAC over expected, rush yards over expected |
 | PFR advanced | `pfr_advstats/advstats_week_{pass,rush,rec,def}_<season>.csv` | pressure-to-sack, yards after contact, broken tackles, drops, pressures, coverage, missed tackles |
 | Snap counts | `snap_counts/snap_counts_<season>.csv` | defense snaps (rates and qualifying minimums) |
-| Contracts | `contracts/historical_contracts.parquet` | cap context on each player (APY, % of cap, last year). Only the parquet is current; the csv.gz stopped in 2022. |
+| Contracts | `contracts/historical_contracts.parquet` | cap context on each player (APY, % of cap at signing, last year) and this season's base salary for the trade cost. Only the parquet is current; the csv.gz stopped in 2022. Reading its year-by-year column takes ~1.3 GB, so `npm run refresh` raises Node's heap to 4 GB. |
 
 **Freshness.** Each source's footer row shows its Last-Modified date and what it covers ("through week 8 + 1 of 14 week 9 games"). States: *Current* (every played game is in), *Behind* (some aren't; the note says whether that is the usual lag or overdue), *Kept last copy* (the download failed, the file didn't parse, or it held less than our last copy, so the last good copy in `data/sources/` is used), *Missing* (no copy ever; the page builds without those stats). Only schedules, play-by-play and rosters are required; without any copy of those the refresh fails and nothing is committed.
 
@@ -53,8 +53,16 @@ Everything tunable is in `src/model/config.ts`.
     | CB | yards/target allowed 30, rating allowed 25, comp % allowed 15 (all low), INT+PD/target 20, missed tackle rate 10 (low) | 30 defense snaps |
     | S | yards/target allowed 25, rating allowed 20 (low), INT+PD/target 20, tackles/100 15, missed tackle rate 20 (low) | 30 defense snaps |
 
-    Offensive line, kickers, punters and long snappers aren't ranked: open data has no per-player production stat good enough.
-4. **Where to buy** (`buy.ts`). Unit → need → positions (`UNIT_NEEDS`): pass O → a pass catcher (WR, TE); rush O → a running back (RB); pass D → pass rush (EDGE, IDL) or coverage (CB, S), whichever half ranks worse (sacks + QB hits per dropback vs EPA per non-sack attempt allowed); rush D → run defense (IDL, LB). Targets: the best producers at those positions on seller teams, active roster only.
+    Kickers, punters and long snappers aren't ranked, and offensive linemen aren't ranked individually: open data has no per-player stat good enough. The line is graded by team instead (below).
+4. **Offensive line** (`line.ts`). Team-level grades, not opponent-adjusted: **pass protection** = QB pressures (PFR) per dropback (play-by-play), counting only the team-games PFR covers; **run blocking** = rushing yards before contact per carry (PFR). Both also reflect the QB, backs and scheme, and the page says so. Grade and rank as for units. Shown on each team sheet and under Players → OL.
+5. **Where to buy** (`buy.ts`, `line.ts`). Unit → need (`UNIT_NEEDS`). Three units pick the weaker of their two halves:
+    - pass O → a pass catcher (WR, TE; rank: EPA per non-sack attempt) or **pass protection** (rank: pressure rate allowed)
+    - rush O → a running back (RB; rank: yards after contact per carry) or **run blocking** (rank: yards before contact per carry)
+    - pass D → pass rush (EDGE, IDL; sacks + QB hits per dropback) or coverage (CB, S; EPA per non-sack attempt allowed)
+    - rush D → run defense (IDL, LB)
+
+    Position needs list the best producers at those positions on seller teams, active roster only. Line needs list starters (T, G, C with ≥ 60% of their team's offense snaps) from the sellers with the best line grade of that kind, at most 2 per team. Their score is the team's line grade, labeled as such. The roster file has no PFR id for linemen, so they're matched to snap counts by name, only where the name is unambiguous.
+6. **Trade cost** (`contracts.ts`). This season's base salary × weeks left / 18 (base salary is paid weekly; signing-bonus proration stays with the old team). Shown on every player with a contract on file. **Team cap room is not shown:** the open contracts data has no dead money (its inactive rows are mostly superseded contracts), so room computed from it is badly wrong for some teams (one would show over $200M).
 
 **Ratings slot (off).** `RATINGS_SOURCE` in config reserves a second ranking: a `{gsis_id: 0-100}` file plus a Production / Ratings / Composite toggle that appears only when it's on. It may be enabled only for data we're allowed to republish (`republishAllowed: true`); the refresh refuses otherwise. Madden ratings are not in this build.
 

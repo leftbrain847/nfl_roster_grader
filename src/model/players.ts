@@ -7,6 +7,7 @@ import {
   DEPTH_TO_GROUP, MIN_WEIGHT_SHARE, POSITIONS, POSITION_GROUPS, RATE_MINIMUMS, RATINGS_SOURCE, STATS,
   type PositionGroup, type RatingsSourceConfig, type StatKey,
 } from './config.ts';
+import { playerContract } from './contracts.ts';
 import { percentiles, round } from './stats.ts';
 import type { ModelInputs, PlayerGame, PlayerResult, PlayerStat } from './types.ts';
 
@@ -173,6 +174,8 @@ const VOLUME_WORDS = { dropbacks: 'dropbacks', carries: 'carries', targets: 'tar
 export interface RankOptions {
   /** Team games played so far, for the per-game qualifying minimums. */
   teamGames: Record<string, number>;
+  /** Regular-season weeks played, for the trade cost. */
+  weeksPlayed: number;
   ratings?: Record<string, number>;
   ratingsCfg?: RatingsSourceConfig;
 }
@@ -259,7 +262,7 @@ export function rankPlayers(inp: ModelInputs, opts: RankOptions): PlayerResult[]
         scores,
         rank: i + 1,
         qualifiedAtPosition: scored.length,
-        contract: c ? { apyMillions: c.apyMillions, capPct: c.capPct, lastYear: c.lastYear } : null,
+        contract: c ? playerContract(c, opts.weeksPlayed) : null,
       });
     });
   }

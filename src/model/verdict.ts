@@ -17,9 +17,9 @@ export interface VerdictInput {
   weakest: UnitKey;
   weakestGrade: number;
   weakestRank: number;
-  /** For the pass-defense split: 1 = best. */
-  passRushRank: number;
-  coverageRank: number;
+  /** Ranks (1 = best) of the weakest unit's two halves (see UNIT_NEEDS); undefined when unknown. */
+  primaryRank?: number;
+  alternateRank?: number;
 }
 
 export interface VerdictResult {
@@ -28,10 +28,10 @@ export interface VerdictResult {
   need: NeedConfig | null;
 }
 
-export function needFor(unit: UnitKey, passRushRank: number, coverageRank: number): NeedConfig {
+export function needFor(unit: UnitKey, primaryRank?: number, alternateRank?: number): NeedConfig {
   const n = UNIT_NEEDS[unit];
-  // larger rank = worse; coverage is the weaker half -> the alternate need
-  if (n.alternate && coverageRank > passRushRank) return n.alternate;
+  // larger rank = worse: when the alternate half is the weaker one, shop for it
+  if (n.alternate && primaryRank !== undefined && alternateRank !== undefined && alternateRank > primaryRank) return n.alternate;
   return n.primary;
 }
 
@@ -52,7 +52,7 @@ export function decideVerdict(v: VerdictInput, cfg: VerdictConfig = VERDICT): Ve
   const unit = UNITS[v.weakest];
   const hole = v.weakestGrade < cfg.holeGrade;
   const sched = scheduleWord(v.scheduleLeftRank, cfg);
-  const need = needFor(v.weakest, v.passRushRank, v.coverageRank);
+  const need = needFor(v.weakest, v.primaryRank, v.alternateRank);
   const buy = (): VerdictResult => ({
     verdict: 'buy',
     reason: `${cfg.labels.buy} ${need.label}: ${v.record}, ${unit.reason} ${ordinal(v.weakestRank)}`,

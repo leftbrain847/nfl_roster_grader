@@ -319,29 +319,91 @@ export const RANKING_LIST_LENGTH = 40;
 export interface NeedConfig {
   /** Shown in the reason: "Buy pass rush". */
   label: string;
+  /** Ranked positions whose producers are listed as targets. Empty for an offensive-line need. */
   positions: PositionGroup[];
+  /** Offensive-line needs: which team line grade picks the targets (OL starters on the best such lines). */
+  line?: LineKey;
 }
 
 /**
- * Each unit maps to one or two needs. Pass defense splits in two: if a team's pass-rush rank (sacks + QB hits per
- * dropback) is worse than its coverage rank (EPA per non-sack pass attempt allowed), it needs pass rush, else
- * coverage. The other units have one need each.
+ * Each unit maps to a primary need and, for three units, an alternate chosen when that half of the unit ranks worse:
+ * - pass O: a pass catcher (rank: EPA per non-sack attempt) vs pass protection (rank: pressure rate allowed)
+ * - rush O: a running back (rank: yards after contact per carry) vs run blocking (rank: yards before contact per carry)
+ * - pass D: pass rush (rank: sacks + QB hits per dropback) vs coverage (rank: EPA per non-sack attempt allowed)
+ * Rush D has one need. If either half's data is missing, the primary need is used.
  */
 export interface UnitNeeds {
   primary: NeedConfig;
-  /** passDefense only: chosen when coverage, not the rush, is the weaker half. */
+  /** Chosen when the alternate half ranks worse (a larger rank number) than the primary half. */
   alternate?: NeedConfig;
 }
 
 export const UNIT_NEEDS: Record<UnitKey, UnitNeeds> = {
-  passOffense: { primary: { label: 'a pass catcher', positions: ['WR', 'TE'] } },
-  rushOffense: { primary: { label: 'a running back', positions: ['RB'] } },
+  passOffense: {
+    primary: { label: 'a pass catcher', positions: ['WR', 'TE'] },
+    alternate: { label: 'pass protection', positions: [], line: 'passPro' },
+  },
+  rushOffense: {
+    primary: { label: 'a running back', positions: ['RB'] },
+    alternate: { label: 'run blocking', positions: [], line: 'runBlock' },
+  },
   passDefense: {
     primary: { label: 'pass rush', positions: ['EDGE', 'IDL'] },
     alternate: { label: 'coverage', positions: ['CB', 'S'] },
   },
   rushDefense: { primary: { label: 'run defense', positions: ['IDL', 'LB'] } },
 };
+
+// ---------------------------------------------------------------------------------------------------------------
+// Offensive line: team-level grades (open data has no per-lineman production stat)
+// ---------------------------------------------------------------------------------------------------------------
+
+export type LineKey = 'passPro' | 'runBlock';
+export const LINE_KEYS: readonly LineKey[] = ['passPro', 'runBlock'];
+
+export interface LineDef {
+  label: string;
+  stat: string;
+  decimals: number;
+  suffix?: string;
+  lowerIsBetter?: boolean;
+  source: string;
+}
+
+export const LINE: Record<LineKey, LineDef> = {
+  /** QB pressures (PFR) per dropback (play-by-play), in the games PFR covers. */
+  passPro: { label: 'Pass protection', stat: 'pressure rate allowed', decimals: 1, suffix: '%', lowerIsBetter: true, source: 'PFR + play-by-play' },
+  /** Rushing yards before contact per carry (PFR), all ball carriers. Scheme and backs affect it too. */
+  runBlock: { label: 'Run blocking', stat: 'yds before contact/carry', decimals: 2, source: 'PFR' },
+};
+
+export interface LineTargetConfig {
+  /** Depth-chart positions that count as offensive line. */
+  depth: string[];
+  /** A starter played at least this share of his team's offense snaps (over the games he played). */
+  starterShare: number;
+  /** Line targets listed per buyer. */
+  perTeam: number;
+  /** At most this many from one selling team, so the list shows more than one line. */
+  perSeller: number;
+}
+
+export const LINE_TARGETS: LineTargetConfig = { depth: ['T', 'G', 'C', 'OT', 'OG', 'OL'], starterShare: 0.6, perTeam: 5, perSeller: 2 };
+
+// ---------------------------------------------------------------------------------------------------------------
+// Contracts: what a trade costs the buyer
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface TradeCostConfig {
+  /**
+   * Base salary is paid in this many weekly checks over the regular season; a team acquiring a player owes the
+   * checks left. Trade cost = this season's base salary x (payWeeks - weeks played) / payWeeks. Signing bonus
+   * proration stays with the old team, so it isn't counted.
+   */
+  payWeeks: number;
+}
+
+export const TRADE_COST: TradeCostConfig = { payWeeks: 18 };
 
 export interface BuyConfig {
   /** Targets listed per buyer. */
