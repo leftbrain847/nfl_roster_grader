@@ -1,10 +1,12 @@
 import { defineConfig } from 'vite';
+import { rosterDataAlias } from '../data-source';
 import config from '../app.config.json';
 
 // The sprint demo: the whole app in one page that runs with no server (a Claude artifact, or the public sprint
 // site). One JS chunk and one stylesheet, which demo/inline.mjs folds into a single file. Solo apps build their
 // offline Play client; invite apps run the platform's real room in the page (src/client/demo.ts).
 export default defineConfig({
+  resolve: { alias: rosterDataAlias },
   root: 'demo',
   base: './',
   mode: 'demo',

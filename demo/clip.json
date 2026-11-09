@@ -1,9 +1,12 @@
 {
-  "seconds": 6,
+  "seconds": 7,
   "selector": "#app",
   "steps": [
-    { "wait": 600 },
     { "start": true },
-    { "wait": 400 }
+    { "wait": 600 },
+    { "tap": "tr.team-row[data-verdict=\"buy\"] >> nth=0" },
+    { "wait": 2200 },
+    { "tap": ".shop .player-head >> nth=0" },
+    { "wait": 2500 }
   ]
 }

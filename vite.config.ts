@@ -1,10 +1,12 @@
 import { defineConfig } from 'vite';
+import { rosterDataAlias } from './data-source';
 import config from './app.config.json';
 
 // Friends build: served at /<id>/ on the shared hostname. Play build: bundled into the app, relative paths.
 const play = process.env.VITE_TARGET === 'play';
 
 export default defineConfig({
+  resolve: { alias: rosterDataAlias },
   base: play ? './' : `/${config.id}/`,
   build: {
     outDir: play ? 'dist/play' : 'dist/friends',
