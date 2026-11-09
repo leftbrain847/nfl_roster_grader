@@ -43,4 +43,10 @@ An app built on app_builder. The platform rules live in `platform/SPEC.md`: read
 
 ## App-specific notes
 
-(Add this app's own decisions here as they're made.)
+- **What it is:** a read-only page. `src/app.ts` is a stub GameModule (the friends Worker needs one); the model is `src/model/` (pure, no clock, no I/O), the refresh pipeline is `pipeline/`, the page is `src/client/main.ts`.
+- **Every weight, threshold and label is in `src/model/config.ts`.** No numbers in logic files.
+- **Data:** `data/` (the last good copy of each nflverse source plus `data/roster_grader.json`) and `web/roster_grader.html` are written ONLY by `.github/workflows/refresh-data.yml`. Never include them in a PR. Locally, `npm run refresh` writes them; leave them uncommitted.
+- **Builds without data** (CI, fresh clone) use `test/fixtures/sample-output.json` and show a "sample data" banner. After changing the model or the fixtures, run `npm run sample` (a test checks it is current).
+- **The page makes no network calls.** Everything is baked in at build time; `pipeline/build-web.ts` fails on network code.
+- **Ratings slot:** `RATINGS_SOURCE` in config is off. Turn it on only for ratings we may republish; the refresh refuses otherwise.
+- **High risk here:** `.github/workflows/refresh-data.yml` (it pushes to `main`) and anything that changes what the public page shows.
