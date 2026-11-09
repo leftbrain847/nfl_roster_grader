@@ -67,7 +67,7 @@ describe('refresh pipeline (fixtures, no network)', () => {
     await refresh({ root, today: TODAY, fetcher: fixtureFetcher() });
     const before = readFileSync(join(root, snapshotPath('pfr_def')), 'utf8');
     // pfr_def: download fails; snaps: unreadable; ngs_rushing: a valid file with fewer weeks than our copy
-    const ngsLess = new TextEncoder().encode('season,season_type,week,player_gsis_id,rush_attempts\n2026,REG,1,00-0000001,5\n2026,REG,0,00-0000001,5\n');
+    const ngsLess = new TextEncoder().encode('season,season_type,week,player_gsis_id,rush_attempts,rush_yards_over_expected_per_att\n2026,REG,1,00-0000001,5,0.1\n2026,REG,0,00-0000001,5,0.1\n');
     const { gzipSync } = await import('node:zlib');
     const res = await refresh({
       root, today: TODAY,
@@ -82,6 +82,15 @@ describe('refresh pipeline (fixtures, no network)', () => {
     expect(s.pfr_def?.asOf).toBe('2026-09-21');
     expect(readFileSync(join(root, snapshotPath('pfr_def')), 'utf8')).toBe(before);
     expect(out().players.some((p) => p.stats.some((x) => x.key === 'pressuresPer100'))).toBe(true);
+  });
+
+  it('a file with a renamed column is rejected, not read as zeros', async () => {
+    await refresh({ root, today: TODAY, fetcher: fixtureFetcher() });
+    const raw = readFileSync(join(RAW, 'pfr_advstats__advstats_week_def_2026.csv'), 'utf8').replace('def_pressures', 'def_pressures_total');
+    const res = await refresh({ root, today: TODAY, fetcher: fixtureFetcher({ 'pfr_advstats__advstats_week_def': new TextEncoder().encode(raw) }) });
+    const s = res.statuses.find((x) => x.id === 'pfr_def');
+    expect(s?.state).toBe('kept');
+    expect(s?.note).toMatch(/could not read the file; using our last good copy/);
   });
 
   it('a missing optional source never fails the page; it is listed as missing', async () => {

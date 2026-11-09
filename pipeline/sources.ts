@@ -47,8 +47,11 @@ export const SOURCES: SourceDef[] = [
 export const sourceUrl = (s: SourceDef, season: number): string => `${NFLVERSE_BASE}/${s.path.replace('{season}', String(season))}`;
 export const rawFileName = (s: SourceDef, season: number): string => s.path.replace('{season}', String(season)).replace(/\//g, '__');
 
-/** The NFL season a date belongs to: March onward is the new league year's season. */
+/** First month of a new season's data (games start in September; before that the page keeps last season). */
+export const SEASON_START_MONTH = 9;
+
+/** The NFL season the page shows on a date: September onward is that year's season, January to August the previous one. */
 export function seasonFor(dateIso: string): number {
   const [y, m] = dateIso.split('-').map(Number) as [number, number];
-  return m >= 3 ? y : y - 1;
+  return m >= SEASON_START_MONTH ? y : y - 1;
 }

@@ -29,6 +29,7 @@ const isReg = (v: string): boolean => v === 'REG';
 
 export function extractSchedules(t: Table, season: number): Extracted<Game[]> {
   const r = reader(t);
+  r.require('season', 'game_type', 'game_id', 'week', 'gameday', 'home_team', 'away_team', 'home_score', 'away_score', 'location');
   const games: Game[] = [];
   for (const row of t.rows) {
     if (r.num(row, 'season') !== season || !isReg(r.str(row, 'game_type'))) continue;
@@ -53,6 +54,9 @@ export interface PbpData { teamGames: TeamGame[]; playerGames: PlayerGame[] }
 
 export function extractPbp(t: Table, season: number): Extracted<PbpData> {
   const r = reader(t);
+  r.require('season', 'season_type', 'game_id', 'pass', 'rush', 'epa', 'qb_epa', 'wp', 'success', 'sack', 'qb_hit', 'pass_attempt', 'cpoe',
+    'posteam', 'defteam', 'posteam_type', 'location', 'passer_player_id', 'receiver_player_id', 'rusher_player_id',
+    'solo_tackle_1_player_id', 'tackle_for_loss_1_player_id', 'sack_player_id', 'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id');
   const cells = new Map<string, TeamGame>();
   const players = new Map<string, PlayerGame>();
   const gameIds = new Set<string>();
@@ -163,6 +167,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
 
 export function extractRosters(t: Table, season: number): Extracted<RosterPlayer[]> {
   const r = reader(t);
+  r.require('season', 'game_type', 'gsis_id', 'week', 'team', 'pfr_id', 'full_name', 'depth_chart_position', 'status');
   const latest = new Map<string, RosterPlayer>();
   const teamWeek = new Map<string, number>();
   let maxWeek = 0;
@@ -191,8 +196,9 @@ export function extractRosters(t: Table, season: number): Extracted<RosterPlayer
   return { data, maxWeek };
 }
 
-function ngsRows(t: Table, season: number): { rows: string[][]; maxWeek: number; r: ReturnType<typeof reader> } {
+function ngsRows(t: Table, season: number, cols: string[]): { rows: string[][]; maxWeek: number; r: ReturnType<typeof reader> } {
   const r = reader(t);
+  r.require('season', 'season_type', 'week', 'player_gsis_id', ...cols);
   let maxWeek = 0;
   const rows: string[][] = [];
   for (const row of t.rows) {
@@ -205,12 +211,12 @@ function ngsRows(t: Table, season: number): { rows: string[][]; maxWeek: number;
 }
 
 export function extractNgsPassing(t: Table, season: number): Extracted<NgsPassing[]> {
-  const { rows, maxWeek, r } = ngsRows(t, season);
+  const { rows, maxWeek, r } = ngsRows(t, season, ['attempts', 'completion_percentage_above_expectation']);
   return { data: rows.map((x) => ({ p: r.str(x, 'player_gsis_id'), att: r.num(x, 'attempts'), cpoe: r.num(x, 'completion_percentage_above_expectation') })).filter((x) => x.p), maxWeek };
 }
 
 export function extractNgsReceiving(t: Table, season: number): Extracted<NgsReceiving[]> {
-  const { rows, maxWeek, r } = ngsRows(t, season);
+  const { rows, maxWeek, r } = ngsRows(t, season, ['targets', 'avg_separation', 'avg_yac_above_expectation']);
   return {
     data: rows.map((x) => ({ p: r.str(x, 'player_gsis_id'), tgt: r.num(x, 'targets'), separation: r.num(x, 'avg_separation'), yacOverExpected: r.num(x, 'avg_yac_above_expectation') })).filter((x) => x.p),
     maxWeek,
@@ -218,12 +224,13 @@ export function extractNgsReceiving(t: Table, season: number): Extracted<NgsRece
 }
 
 export function extractNgsRushing(t: Table, season: number): Extracted<NgsRushing[]> {
-  const { rows, maxWeek, r } = ngsRows(t, season);
+  const { rows, maxWeek, r } = ngsRows(t, season, ['rush_attempts', 'rush_yards_over_expected_per_att']);
   return { data: rows.map((x) => ({ p: r.str(x, 'player_gsis_id'), att: r.num(x, 'rush_attempts'), ryoePerAtt: r.num(x, 'rush_yards_over_expected_per_att') })).filter((x) => x.p), maxWeek };
 }
 
-function pfrRows<T>(t: Table, season: number, map: (row: string[], r: ReturnType<typeof reader>) => T): Extracted<T[]> {
+function pfrRows<T>(t: Table, season: number, cols: string[], map: (row: string[], r: ReturnType<typeof reader>) => T): Extracted<T[]> {
   const r = reader(t);
+  r.require('season', 'game_type', 'game_id', 'pfr_player_id', 'team', ...cols);
   const data: T[] = [];
   const games = new Set<string>();
   for (const row of t.rows) {
@@ -239,10 +246,10 @@ function pfrRows<T>(t: Table, season: number, map: (row: string[], r: ReturnType
 const base = (row: string[], r: ReturnType<typeof reader>) => ({ p: r.str(row, 'pfr_player_id'), g: r.str(row, 'game_id'), t: r.str(row, 'team') });
 
 export const extractPfrPass = (t: Table, s: number): Extracted<PfrPassRow[]> =>
-  pfrRows(t, s, (row, r) => ({ ...base(row, r), pressured: r.num(row, 'times_pressured'), sacked: r.num(row, 'times_sacked') }));
+  pfrRows(t, s, ['times_pressured', 'times_sacked'], (row, r) => ({ ...base(row, r), pressured: r.num(row, 'times_pressured'), sacked: r.num(row, 'times_sacked') }));
 
 export const extractPfrRush = (t: Table, s: number): Extracted<PfrRushRow[]> =>
-  pfrRows(t, s, (row, r) => ({
+  pfrRows(t, s, ['carries', 'rushing_yards_after_contact', 'rushing_broken_tackles', 'receiving_broken_tackles'], (row, r) => ({
     ...base(row, r),
     carries: r.num(row, 'carries'),
     yac: r.num(row, 'rushing_yards_after_contact'),
@@ -251,10 +258,10 @@ export const extractPfrRush = (t: Table, s: number): Extracted<PfrRushRow[]> =>
   }));
 
 export const extractPfrRec = (t: Table, s: number): Extracted<PfrRecRow[]> =>
-  pfrRows(t, s, (row, r) => ({ ...base(row, r), drops: r.num(row, 'receiving_drop'), btRec: r.num(row, 'receiving_broken_tackles') }));
+  pfrRows(t, s, ['receiving_drop', 'receiving_broken_tackles'], (row, r) => ({ ...base(row, r), drops: r.num(row, 'receiving_drop'), btRec: r.num(row, 'receiving_broken_tackles') }));
 
 export const extractPfrDef = (t: Table, s: number): Extracted<PfrDefRow[]> =>
-  pfrRows(t, s, (row, r) => {
+  pfrRows(t, s, ['def_targets', 'def_completions_allowed', 'def_yards_allowed', 'def_passer_rating_allowed', 'def_ints', 'def_pressures', 'def_tackles_combined', 'def_missed_tackles'], (row, r) => {
     const targets = r.num(row, 'def_targets');
     return {
       ...base(row, r),
@@ -270,7 +277,7 @@ export const extractPfrDef = (t: Table, s: number): Extracted<PfrDefRow[]> =>
   });
 
 export const extractSnaps = (t: Table, s: number): Extracted<SnapRow[]> =>
-  pfrRows(t, s, (row, r) => ({ ...base(row, r), off: r.num(row, 'offense_snaps'), def: r.num(row, 'defense_snaps') }));
+  pfrRows(t, s, ['offense_snaps', 'defense_snaps'], (row, r) => ({ ...base(row, r), off: r.num(row, 'offense_snaps'), def: r.num(row, 'defense_snaps') }));
 
 /** Contracts parquet -> the current contract per player (active, latest signed). hyparquet is loaded only here. */
 export async function extractContracts(buf: Uint8Array): Promise<Extracted<Contract[]>> {

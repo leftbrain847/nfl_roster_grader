@@ -147,7 +147,8 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
     try {
       const res = await opts.fetcher(url);
       if (!res.ok || !res.bytes) {
-        why = `download failed (${res.error ?? `HTTP ${res.status}`})`;
+        why = res.status ? `download failed (HTTP ${res.status})` : 'download failed (network error)';
+        if (res.error) log(`${s.id}: ${res.error}`);
       } else {
         if (opts.rawDir) {
           mkdirSync(opts.rawDir, { recursive: true });
@@ -159,7 +160,8 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
         else fresh = { id: s.id, season, lastModified: isoDate(res.lastModified), games: ex.games?.slice().sort(), maxWeek: ex.maxWeek, data: ex.data };
       }
     } catch (e) {
-      why = `could not read the file (${(e as Error).message.split('\n')[0]})`;
+      why = 'could not read the file';
+      log(`${s.id}: ${(e as Error).message.split('\n')[0]}`);
     }
     let chosen: Snapshot | null = fresh;
     let kept = false;

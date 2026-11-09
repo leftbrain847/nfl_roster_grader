@@ -77,10 +77,19 @@ jobs:
           set -euo pipefail
           in="$RUNNER_TEMP/in"
           bad=$(cd "$in" && find . \( -type f -o -type l \) ! -regex '\./data/[a-z_]+\.json' ! -regex '\./data/sources/[a-z_]+\.json' ! -path './web/roster_grader.html' -print)
-          if [ -n "$bad" ]; then echo "::error::unexpected files in the build output: $bad"; exit 1; fi
-          if find "$in" -type l | grep -q .; then echo "::error::symlinks in the build output"; exit 1; fi
-          test -s "$in/data/roster_grader.json" && test -s "$in/web/roster_grader.html"
-          find "$in/data" -name '*.json' -print0 | xargs -0 -n1 jq empty
+          if [ -n "$bad" ]; then
+            echo "::error::unexpected files in the build output (listed below)"
+            printf '%q\n' "$bad" >&2
+            exit 1
+          fi
+          if [ -n "$(find "$in" -type l -print -quit)" ]; then echo "::error::symlinks in the build output"; exit 1; fi
+          if [ -n "$(find "$in" -type f -size +20M -print -quit)" ]; then echo "::error::a file over 20 MB in the build output"; exit 1; fi
+          for f in "$in/data/roster_grader.json" "$in/web/roster_grader.html"; do
+            if [ ! -s "$f" ]; then echo "::error::missing or empty: ${f#"$in"/}"; exit 1; fi
+          done
+          while IFS= read -r -d '' f; do
+            if [ ! -s "$f" ] || ! jq empty "$f"; then echo "::error::not valid JSON: ${f#"$in"/}"; exit 1; fi
+          done < <(find "$in/data" -name '*.json' -print0)
           mkdir -p data web
           cp -R "$in/data/." data/
           cp "$in/web/roster_grader.html" web/roster_grader.html

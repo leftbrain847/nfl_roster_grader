@@ -80,6 +80,11 @@ export function reader(t: Table) {
   };
   return {
     has: (name: string): boolean => ix(name) >= 0,
+    /** Throw if any column is missing: a renamed column must not silently read as zeros. */
+    require: (...names: string[]): void => {
+      const missing = names.filter((n) => ix(n) < 0);
+      if (missing.length) throw new Error(`missing columns: ${missing.join(', ')}`);
+    },
     str: (r: string[], name: string): string => {
       const k = ix(name);
       const v = k >= 0 ? (r[k] ?? '') : '';
