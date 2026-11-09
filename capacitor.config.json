@@ -1,0 +1,5 @@
+{
+  "appId": "com.example.apps.nfl_roster_grader",
+  "appName": "Roster Grader",
+  "webDir": "dist/play"
+}

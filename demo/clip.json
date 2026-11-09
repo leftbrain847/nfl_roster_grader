@@ -1,0 +1,14 @@
+{
+  "seconds": 7,
+  "selector": "#app",
+  "steps": [
+    { "start": true },
+    { "wait": 500 },
+    { "tap": "tr.team-row[data-verdict=\"buy\"] >> nth=0" },
+    { "wait": 2300 },
+    { "tap": ".sheet .close" },
+    { "wait": 300 },
+    { "tap": "tr.team-row[data-verdict=\"buy\"] >> nth=1" },
+    { "wait": 2500 }
+  ]
+}

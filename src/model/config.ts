@@ -1,0 +1,416 @@
+/**
+ * Every weight, threshold and label the model uses. Logic files import from here; they hold no magic numbers.
+ * Change a value here, run `npm test`, and the nightly refresh picks it up.
+ */
+
+// ---------------------------------------------------------------------------------------------------------------
+// Units
+// ---------------------------------------------------------------------------------------------------------------
+
+export type UnitKey = 'passOffense' | 'rushOffense' | 'passDefense' | 'rushDefense';
+export const UNIT_KEYS: readonly UnitKey[] = ['passOffense', 'rushOffense', 'passDefense', 'rushDefense'];
+
+export interface UnitLabel {
+  /** Column header in the league table. */
+  short: string;
+  /** Used in the one-line reason ("pass D 27th"). */
+  reason: string;
+  /** Full name on the team sheet. */
+  long: string;
+  /** Offense units: high EPA is good. Defense units: low EPA allowed is good. */
+  side: 'offense' | 'defense';
+  play: 'pass' | 'rush';
+}
+
+export const UNITS: Record<UnitKey, UnitLabel> = {
+  passOffense: { short: 'Pass O', reason: 'pass O', long: 'Pass offense', side: 'offense', play: 'pass' },
+  rushOffense: { short: 'Rush O', reason: 'rush O', long: 'Rush offense', side: 'offense', play: 'rush' },
+  passDefense: { short: 'Pass D', reason: 'pass D', long: 'Pass defense', side: 'defense', play: 'pass' },
+  rushDefense: { short: 'Rush D', reason: 'rush D', long: 'Rush defense', side: 'defense', play: 'rush' },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Opponent adjustment (ridge regression; see src/model/adjust.ts for why ridge)
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface AdjustConfig {
+  /**
+   * Ridge penalty, in plays. Each team's offense and defense effect is shrunk toward league average as if it had
+   * this many extra league-average plays. Half a season is ~250 dropbacks and ~200 runs per team, so 120 pulls a
+   * small, noisy sample noticeably toward the mean and barely moves a full season.
+   */
+  lambdaPlays: { pass: number; rush: number };
+  /** Fit a single home-field term (offense at home vs away). Neutral-site games count as neither. */
+  homeField: boolean;
+  /** Gauss-Seidel stops when no coefficient moves more than this (EPA/play)... */
+  tolerance: number;
+  /** ...or after this many sweeps. */
+  maxIterations: number;
+}
+
+export const ADJUST: AdjustConfig = {
+  lambdaPlays: { pass: 120, rush: 120 },
+  homeField: true,
+  tolerance: 1e-9,
+  maxIterations: 500,
+};
+
+/** Which plays count toward team unit grades. */
+export interface PlayFilterConfig {
+  /** Drop garbage time: plays where the offense's win probability is outside [min, max]. */
+  winProbability: { min: number; max: number };
+  /** Regular season only. */
+  seasonType: 'REG';
+}
+
+export const PLAY_FILTER: PlayFilterConfig = {
+  winProbability: { min: 0.05, max: 0.95 },
+  seasonType: 'REG',
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Grades
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface GradeConfig {
+  /**
+   * 0-100 grade = 100 x normal CDF of the team's z-score among all teams (sign flipped for defense), so 50 is
+   * league average and each 10 points is roughly a quarter of a standard deviation near the middle.
+   */
+  scale: 'normal-cdf';
+  /** Round grades to this many decimals. */
+  decimals: number;
+}
+
+export const GRADE: GradeConfig = { scale: 'normal-cdf', decimals: 0 };
+
+// ---------------------------------------------------------------------------------------------------------------
+// Team strength and the playoff-odds estimate
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface StrengthConfig {
+  /** Plays per team per game, to turn net adjusted EPA/play into points per game (EPA is in points). */
+  playsPerGame: number;
+  /** Blend of the two strength signals (sums to 1): opponent-adjusted EPA vs actual point differential. */
+  weights: { adjustedEpa: number; pointDifferential: number };
+  /** Multiply the blend by this to regress toward average (a half season is a small sample). */
+  regression: number;
+}
+
+export const STRENGTH: StrengthConfig = {
+  playsPerGame: 62,
+  weights: { adjustedEpa: 0.6, pointDifferential: 0.4 },
+  regression: 0.7,
+};
+
+export interface PlayoffSimConfig {
+  /** Label shown next to every odds number: it is a rough model, not a betting line. */
+  label: string;
+  simulations: number;
+  /** Seed for the deterministic random stream (same data, same odds). */
+  seed: number;
+  /** Home-field advantage, points. */
+  homeFieldPoints: number;
+  /** Standard deviation of an NFL game's margin around the expected margin, points. */
+  marginSd: number;
+  /** Playoff spots per conference: division winners first, then the best remaining records. */
+  spotsPerConference: number;
+  /** Probability a simulated game ends tied. */
+  tieProbability: number;
+}
+
+export const PLAYOFF_SIM: PlayoffSimConfig = {
+  label: 'Playoff odds (rough sim)',
+  simulations: 10000,
+  seed: 20261109,
+  homeFieldPoints: 1.5,
+  marginSd: 13.5,
+  spotsPerConference: 7,
+  tieProbability: 0.003,
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Verdict
+// ---------------------------------------------------------------------------------------------------------------
+
+export type Verdict = 'buy' | 'sell' | 'stand pat';
+
+export interface VerdictConfig {
+  /** At or above: a contender. It buys if it has a hole, else stands pat. */
+  contenderOdds: number;
+  /** At or below: a seller. */
+  sellerOdds: number;
+  /** In between (the bubble), the remaining schedule decides. */
+  bubble: {
+    /** Buy if odds are at least this AND the schedule left is among the easiest `easyThird` teams' schedules. */
+    buyOdds: number;
+    /** Sell if odds are at most this AND the schedule left is among the hardest `hardThird` teams' schedules. */
+    sellOdds: number;
+  };
+  /** Schedule-left rank cutoffs (1 = hardest remaining schedule). */
+  schedule: { hardRankMax: number; easyRankMin: number };
+  /** A unit graded below this is a hole worth buying for. */
+  holeGrade: number;
+  labels: Record<Verdict, string>;
+}
+
+export const VERDICT: VerdictConfig = {
+  contenderOdds: 0.55,
+  sellerOdds: 0.15,
+  bubble: { buyOdds: 0.35, sellOdds: 0.3 },
+  schedule: { hardRankMax: 11, easyRankMin: 22 },
+  holeGrade: 45,
+  labels: { buy: 'Buy', sell: 'Sell', 'stand pat': 'Stand pat' },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Positions, the stats behind each position's production score, and qualifying minimums
+// ---------------------------------------------------------------------------------------------------------------
+
+export type PositionGroup = 'QB' | 'RB' | 'WR' | 'TE' | 'EDGE' | 'IDL' | 'LB' | 'CB' | 'S';
+export const POSITION_GROUPS: readonly PositionGroup[] = ['QB', 'RB', 'WR', 'TE', 'EDGE', 'IDL', 'LB', 'CB', 'S'];
+
+/**
+ * Roster depth-chart position -> position group. OL, K, P and LS have no open per-player production stat good
+ * enough to rank, so they are left out (documented in the README). OLB counts as EDGE: in most fronts it rushes.
+ */
+export const DEPTH_TO_GROUP: Record<string, PositionGroup> = {
+  QB: 'QB',
+  RB: 'RB', FB: 'RB', HB: 'RB',
+  WR: 'WR',
+  TE: 'TE',
+  DE: 'EDGE', OLB: 'EDGE',
+  DT: 'IDL', NT: 'IDL',
+  ILB: 'LB', MLB: 'LB', LB: 'LB',
+  CB: 'CB',
+  FS: 'S', SS: 'S', S: 'S', SAF: 'S',
+};
+
+/** Every stat a position score can use. Each is computed in src/model/players.ts from the sources named here. */
+export type StatKey =
+  | 'epaPerDropback' | 'successRate' | 'cpoe' | 'sackRate' | 'pressureToSack'
+  | 'rushEpaPerCarry' | 'rushSuccessRate' | 'ryoePerCarry' | 'yacPerCarry' | 'brokenTacklesPerCarry'
+  | 'epaPerTarget' | 'targetShare' | 'separation' | 'yacOverExpected' | 'dropRate'
+  | 'pressuresPer100' | 'sacksPer100' | 'tflPer100' | 'tacklesPer100' | 'missedTackleRate'
+  | 'yardsPerTargetAllowed' | 'ratingAllowed' | 'completionAllowed' | 'ballsPlayedPerTarget';
+
+export interface StatDef {
+  label: string;
+  /** How it's shown: decimals and an optional unit suffix. */
+  decimals: number;
+  suffix?: string;
+  /** Lower is better (sack rate, drops, yards allowed). */
+  lowerIsBetter?: boolean;
+  /** Where it comes from, for the footnote on each score. */
+  source: string;
+}
+
+export const STATS: Record<StatKey, StatDef> = {
+  epaPerDropback: { label: 'EPA/dropback', decimals: 2, source: 'play-by-play' },
+  successRate: { label: 'Success rate', decimals: 0, suffix: '%', source: 'play-by-play' },
+  cpoe: { label: 'CPOE', decimals: 1, source: 'Next Gen Stats' },
+  sackRate: { label: 'Sack rate', decimals: 1, suffix: '%', lowerIsBetter: true, source: 'play-by-play' },
+  pressureToSack: { label: 'Pressure-to-sack', decimals: 0, suffix: '%', lowerIsBetter: true, source: 'PFR' },
+  rushEpaPerCarry: { label: 'EPA/carry', decimals: 2, source: 'play-by-play' },
+  rushSuccessRate: { label: 'Success rate', decimals: 0, suffix: '%', source: 'play-by-play' },
+  ryoePerCarry: { label: 'RYOE/carry', decimals: 2, source: 'Next Gen Stats' },
+  yacPerCarry: { label: 'Yds after contact/carry', decimals: 2, source: 'PFR' },
+  brokenTacklesPerCarry: { label: 'Broken tackles/carry', decimals: 2, source: 'PFR' },
+  epaPerTarget: { label: 'EPA/target', decimals: 2, source: 'play-by-play' },
+  targetShare: { label: 'Target share', decimals: 0, suffix: '%', source: 'play-by-play' },
+  separation: { label: 'Separation (yds)', decimals: 1, source: 'Next Gen Stats' },
+  yacOverExpected: { label: 'YAC over expected', decimals: 1, source: 'Next Gen Stats' },
+  dropRate: { label: 'Drop rate', decimals: 1, suffix: '%', lowerIsBetter: true, source: 'PFR' },
+  pressuresPer100: { label: 'Pressures/100 snaps', decimals: 1, source: 'PFR' },
+  sacksPer100: { label: 'Sacks/100 snaps', decimals: 1, source: 'play-by-play' },
+  tflPer100: { label: 'TFL/100 snaps', decimals: 1, source: 'play-by-play' },
+  tacklesPer100: { label: 'Tackles/100 snaps', decimals: 1, source: 'play-by-play' },
+  missedTackleRate: { label: 'Missed tackle rate', decimals: 0, suffix: '%', lowerIsBetter: true, source: 'PFR' },
+  yardsPerTargetAllowed: { label: 'Yds/target allowed', decimals: 1, lowerIsBetter: true, source: 'PFR' },
+  ratingAllowed: { label: 'Rating allowed', decimals: 0, lowerIsBetter: true, source: 'PFR' },
+  completionAllowed: { label: 'Comp % allowed', decimals: 0, suffix: '%', lowerIsBetter: true, source: 'PFR' },
+  ballsPlayedPerTarget: { label: 'INT+PD/target', decimals: 2, source: 'play-by-play + PFR' },
+};
+
+export interface PositionConfig {
+  label: string;
+  /** Stats and their weights in the production score (weights are normalized over the stats a player has). */
+  weights: Partial<Record<StatKey, number>>;
+  /**
+   * Qualifying minimum, per team game played, so it scales through the season: `per` is the volume measure.
+   * dropbacks/carries/targets come from play-by-play; snaps from PFR snap counts (defense snaps).
+   */
+  minimum: { per: 'dropbacks' | 'carries' | 'targets' | 'defenseSnaps'; perTeamGame: number };
+}
+
+export const POSITIONS: Record<PositionGroup, PositionConfig> = {
+  QB: {
+    label: 'Quarterback',
+    weights: { epaPerDropback: 0.4, successRate: 0.2, cpoe: 0.2, sackRate: 0.1, pressureToSack: 0.1 },
+    minimum: { per: 'dropbacks', perTeamGame: 14 },
+  },
+  RB: {
+    label: 'Running back',
+    weights: { rushEpaPerCarry: 0.3, rushSuccessRate: 0.2, ryoePerCarry: 0.25, yacPerCarry: 0.15, brokenTacklesPerCarry: 0.1 },
+    minimum: { per: 'carries', perTeamGame: 6 },
+  },
+  WR: {
+    label: 'Wide receiver',
+    weights: { epaPerTarget: 0.35, targetShare: 0.25, separation: 0.15, yacOverExpected: 0.1, dropRate: 0.15 },
+    minimum: { per: 'targets', perTeamGame: 3.5 },
+  },
+  TE: {
+    label: 'Tight end',
+    weights: { epaPerTarget: 0.4, targetShare: 0.2, separation: 0.15, yacOverExpected: 0.1, dropRate: 0.15 },
+    minimum: { per: 'targets', perTeamGame: 2.5 },
+  },
+  EDGE: {
+    label: 'Edge rusher',
+    weights: { pressuresPer100: 0.45, sacksPer100: 0.25, tflPer100: 0.2, missedTackleRate: 0.1 },
+    minimum: { per: 'defenseSnaps', perTeamGame: 20 },
+  },
+  IDL: {
+    label: 'Interior D-line',
+    weights: { pressuresPer100: 0.35, sacksPer100: 0.15, tflPer100: 0.25, tacklesPer100: 0.15, missedTackleRate: 0.1 },
+    minimum: { per: 'defenseSnaps', perTeamGame: 20 },
+  },
+  LB: {
+    label: 'Linebacker',
+    weights: { tacklesPer100: 0.25, tflPer100: 0.2, missedTackleRate: 0.2, yardsPerTargetAllowed: 0.2, pressuresPer100: 0.15 },
+    minimum: { per: 'defenseSnaps', perTeamGame: 25 },
+  },
+  CB: {
+    label: 'Cornerback',
+    weights: { yardsPerTargetAllowed: 0.3, ratingAllowed: 0.25, completionAllowed: 0.15, ballsPlayedPerTarget: 0.2, missedTackleRate: 0.1 },
+    minimum: { per: 'defenseSnaps', perTeamGame: 30 },
+  },
+  S: {
+    label: 'Safety',
+    weights: { yardsPerTargetAllowed: 0.25, ratingAllowed: 0.2, ballsPlayedPerTarget: 0.2, tacklesPer100: 0.15, missedTackleRate: 0.2 },
+    minimum: { per: 'defenseSnaps', perTeamGame: 30 },
+  },
+};
+
+/** Rate stats need a floor on their own denominator, or one target or one tackle attempt decides them. */
+export const RATE_MINIMUMS = {
+  /** Coverage stats (yards/rating/comp % allowed, INT+PD per target): targets in coverage. */
+  coverageTargets: 10,
+  /** Missed tackle rate: tackles + missed tackles. */
+  tackleAttempts: 10,
+  /** Pressure-to-sack: times pressured. */
+  qbPressures: 15,
+  /** Drop rate: targets in the games PFR covers. */
+  dropTargets: 15,
+};
+
+/**
+ * A player is scored only if the stats they have carry at least this share of the position's total weight
+ * (e.g. a QB with no NGS row still has 80% of the weight from play-by-play and PFR).
+ */
+export const MIN_WEIGHT_SHARE = 0.6;
+
+/** Players shown per position in the rankings view (all qualified players are scored). */
+export const RANKING_LIST_LENGTH = 40;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Where to buy: the unit -> need -> positions mapping
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface NeedConfig {
+  /** Shown in the reason: "Buy pass rush". */
+  label: string;
+  positions: PositionGroup[];
+}
+
+/**
+ * Each unit maps to one or two needs. Pass defense splits in two: if a team's pass-rush rank (sacks + QB hits per
+ * dropback) is worse than its coverage rank (EPA per non-sack pass attempt allowed), it needs pass rush, else
+ * coverage. The other units have one need each.
+ */
+export interface UnitNeeds {
+  primary: NeedConfig;
+  /** passDefense only: chosen when coverage, not the rush, is the weaker half. */
+  alternate?: NeedConfig;
+}
+
+export const UNIT_NEEDS: Record<UnitKey, UnitNeeds> = {
+  passOffense: { primary: { label: 'a pass catcher', positions: ['WR', 'TE'] } },
+  rushOffense: { primary: { label: 'a running back', positions: ['RB'] } },
+  passDefense: {
+    primary: { label: 'pass rush', positions: ['EDGE', 'IDL'] },
+    alternate: { label: 'coverage', positions: ['CB', 'S'] },
+  },
+  rushDefense: { primary: { label: 'run defense', positions: ['IDL', 'LB'] } },
+};
+
+export interface BuyConfig {
+  /** Targets listed per buyer. */
+  targetsPerTeam: number;
+  /** Teams whose players can be bought: sellers, and optionally stand-pat teams too. */
+  fromVerdicts: Verdict[];
+  /** Trade chips listed on a seller's sheet. */
+  chipsPerSeller: number;
+  /** Roster statuses that can be traded for (ACT = active roster; injured reserve and the like are left out). */
+  statuses: string[];
+}
+
+export const BUY: BuyConfig = { targetsPerTeam: 5, fromVerdicts: ['sell'], chipsPerSeller: 5, statuses: ['ACT'] };
+
+// ---------------------------------------------------------------------------------------------------------------
+// Optional second ranking: a ratings source. OFF in this build.
+// ---------------------------------------------------------------------------------------------------------------
+
+export type RankingMode = 'production' | 'ratings' | 'composite';
+
+export interface RatingsSourceConfig {
+  /**
+   * Off by default. When on, the refresh reads `file` (JSON: { "<gsis_id>": rating 0-100, ... }) and the page shows a
+   * Production / Ratings / Composite toggle. Nothing else changes: every player already carries a `scores` map.
+   */
+  enabled: boolean;
+  /** Short name shown on the toggle and in the footer credit. */
+  label: string;
+  /** Where the ratings come from and under what terms. */
+  license: string;
+  /**
+   * Must be true to enable: only data we are allowed to republish on a public page. The refresh refuses to build
+   * with a ratings source whose terms don't allow it (src/model/ratings.ts).
+   */
+  republishAllowed: boolean;
+  /** Repo-relative path the refresh reads. */
+  file: string;
+  /** Composite = production x weight + ratings x (1 - weight). */
+  compositeProductionWeight: number;
+}
+
+export const RATINGS_SOURCE: RatingsSourceConfig = {
+  enabled: false,
+  label: '',
+  license: '',
+  republishAllowed: false,
+  file: 'data/ratings.json',
+  compositeProductionWeight: 0.5,
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// League structure (for the playoff sim)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const DIVISIONS: Record<string, string[]> = {
+  'AFC East': ['BUF', 'MIA', 'NE', 'NYJ'],
+  'AFC North': ['BAL', 'CIN', 'CLE', 'PIT'],
+  'AFC South': ['HOU', 'IND', 'JAX', 'TEN'],
+  'AFC West': ['DEN', 'KC', 'LAC', 'LV'],
+  'NFC East': ['DAL', 'NYG', 'PHI', 'WAS'],
+  'NFC North': ['CHI', 'DET', 'GB', 'MIN'],
+  'NFC South': ['ATL', 'CAR', 'NO', 'TB'],
+  'NFC West': ['ARI', 'LA', 'SEA', 'SF'],
+};
+
+export const TEAM_NAMES: Record<string, string> = {
+  ARI: 'Cardinals', ATL: 'Falcons', BAL: 'Ravens', BUF: 'Bills', CAR: 'Panthers', CHI: 'Bears', CIN: 'Bengals',
+  CLE: 'Browns', DAL: 'Cowboys', DEN: 'Broncos', DET: 'Lions', GB: 'Packers', HOU: 'Texans', IND: 'Colts',
+  JAX: 'Jaguars', KC: 'Chiefs', LA: 'Rams', LAC: 'Chargers', LV: 'Raiders', MIA: 'Dolphins', MIN: 'Vikings',
+  NE: 'Patriots', NO: 'Saints', NYG: 'Giants', NYJ: 'Jets', PHI: 'Eagles', PIT: 'Steelers', SEA: 'Seahawks',
+  SF: '49ers', TB: 'Buccaneers', TEN: 'Titans', WAS: 'Commanders',
+};
