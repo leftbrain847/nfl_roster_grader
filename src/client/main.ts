@@ -194,7 +194,7 @@ function playerCard(p: PlayerResult, opts: { showTeam: boolean; rank?: number })
     open ? el('div', { className: 'player-body' }, [
       statLine(p),
       el('p', { className: 'p-contract', text: contract }),
-      profiles.has(p.id) ? el('button', { className: 'more', text: 'Game log and contract', onClick: () => openPlayer(p.id) }) : null,
+      profiles.has(p.id) ? el('button', { className: 'more', text: 'Game log and contract', attrs: { 'data-player': p.id }, onClick: () => openPlayer(p.id, `.more[data-player="${p.id}"]`) }) : null,
       el('p', { className: 'fine', text: 'Each stat: value, then percentile among qualified players at the position. Score = percentile of the weighted stat percentiles.' }),
     ]) : null,
   ]);
@@ -254,7 +254,7 @@ function teamSheet(t: TeamResult): HTMLElement {
     shop = el('section', { className: 'shop' }, [el('p', { className: 'fine', text: 'Standing pat: no shopping list.' })]);
   }
   return el('div', { className: 'sheet-backdrop', onClick: (e) => { if (e.target === e.currentTarget) closeTeam(); } }, [
-    el('article', { className: 'sheet', attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': `${t.name} roster grade` } }, [
+    el('article', { className: 'sheet', attrs: { role: 'dialog', 'aria-modal': String(!state.player), ...(state.player ? { 'aria-hidden': 'true' } : {}), 'aria-label': `${t.name} roster grade` } }, [
       el('header', { className: 'sheet-head' }, [
         el('div', {}, [
           el('p', { className: 'eyebrow', text: `${t.division} · ${t.record}` }),
@@ -309,18 +309,18 @@ function gameLog(p: PlayerProfile): HTMLElement {
   const cells = (v: number[]): HTMLElement[] => cols.map((c, i) => el('td', { className: 'num', text: (v[i] ?? 0).toFixed(c.decimals) }));
   const traded = new Set(p.log.map((r) => r.team)).size > 1;
   const rows = p.log.map((r) => el('tr', {}, [
-    el('th', { className: 'num', attrs: { scope: 'row' }, text: String(r.wk) }),
-    el('td', { text: `${traded ? `${r.team} ` : ''}${r.home ? '' : '@'}${r.opp}` }),
+    el('th', { className: 'num left', attrs: { scope: 'row' }, text: String(r.wk) }),
+    el('td', { className: 'left', text: `${traded ? `${r.team} ` : ''}${r.home ? '' : '@'}${r.opp}` }),
     el('td', { className: 'num', text: r.result || '-' }),
     el('td', { className: 'num', text: r.snapPct === null ? '-' : String(r.snapPct) }),
     ...cells(r.v),
   ]));
   return el('div', { className: 'table-wrap' }, [
     el('table', { className: 'log' }, [
-      el('thead', {}, [el('tr', {}, head.map((h, i) => el('th', { text: h, attrs: { scope: 'col', title: titles[i] ?? h } })))]),
+      el('thead', {}, [el('tr', {}, head.map((h, i) => el('th', { text: h, className: i < 2 ? 'left' : '', attrs: { scope: 'col', title: titles[i] ?? h } })))]),
       el('tbody', {}, rows),
       el('tfoot', {}, [el('tr', {}, [
-        el('th', { attrs: { scope: 'row', colspan: '4' }, text: `Total · ${p.log.length} games` }),
+        el('th', { className: 'left', attrs: { scope: 'row', colspan: '4' }, text: `Total · ${p.log.length} games` }),
         ...cells(logTotals(p.log, cols.map((c) => c.decimals))),
       ])]),
     ]),
@@ -340,9 +340,9 @@ function contractBox(c: ContractDetail | null): HTMLElement {
     el('p', { className: 'terms', text: terms }),
     c.seasons.length ? el('div', { className: 'table-wrap' }, [
       el('table', { className: 'log' }, [
-        el('thead', {}, [el('tr', {}, ['Year', 'Base salary', 'Cap hit', 'Cash paid'].map((h) => el('th', { text: h, attrs: { scope: 'col' } })))]),
+        el('thead', {}, [el('tr', {}, ['Year', 'Base salary', 'Cap hit', 'Cash paid'].map((h, i) => el('th', { text: h, className: i ? '' : 'left', attrs: { scope: 'col' } })))]),
         el('tbody', {}, c.seasons.map((s) => el('tr', {}, [
-          el('th', { className: 'num', attrs: { scope: 'row' }, text: String(s.year) }),
+          el('th', { className: 'num left', attrs: { scope: 'row' }, text: String(s.year) }),
           el('td', { className: 'num', text: money(s.base, 2) }),
           el('td', { className: 'num', text: money(s.cap, 2) }),
           el('td', { className: 'num', text: money(s.cash, 2) }),
@@ -370,14 +370,22 @@ function playerSheet(p: PlayerProfile): HTMLElement {
         statLine(ranked),
         el('p', { className: 'fine', text: 'Each stat: value, then percentile among qualified players at the position.' }),
       ]) : null,
-      el('section', { className: 'shop' }, [el('h3', { text: 'Game log' }), gameLog(p)]),
+      el('section', { className: 'shop' }, [
+        el('h3', { text: 'Game log' }),
+        gameLog(p),
+        el('p', { className: 'fine', text: `Snap% = share of the team's ${GAME_LOG.snapSide[p.kind] === 'off' ? 'offense' : 'defense'} snaps. ${GAME_LOG.columns[p.kind].map((c) => `${c.label} = ${c.title}`).join(' · ')}.` }),
+      ]),
       el('section', { className: 'shop' }, [el('h3', { text: 'Contract' }), contractBox(p.contract)]),
     ]),
   ]);
 }
 
-function openPlayer(id: string): void {
+/** What to focus when the player page closes: a selector for the control that opened it. */
+let playerOpener = '';
+
+function openPlayer(id: string, opener: string): void {
   if (!profiles.has(id)) return;
+  playerOpener = opener;
   state.player = id;
   setHash(`player-${id}`);
   draw();
@@ -388,22 +396,30 @@ function closePlayer(): void {
   state.player = null;
   setHash(state.team ? `team-${state.team.toLowerCase()}` : '');
   draw();
+  const back = playerOpener ? document.querySelector<HTMLElement>(playerOpener) : null;
+  (back ?? document.querySelector<HTMLElement>(state.team ? '.sheet .close' : '.search'))?.focus();
 }
+
+/** For matching names as typed: no accents, no apostrophes or periods, lowercase ("D’Andre" == "dandre"). */
+const fold = (s: string): string => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/['’‘`.]/g, '').toLowerCase().trim();
+const folded = new Map((data.profiles ?? []).map((p) => [p.id, fold(p.name)]));
 
 /** Find any player with a page, ranked or not. Typing redraws only the result list, so the box keeps focus. */
 function playerSearch(): HTMLElement {
-  const results = el('ul', { className: 'players' });
+  const results = el('ul', { className: 'players', attrs: { 'aria-live': 'polite' } });
   const fill = (): void => {
-    const q = state.query.trim().toLowerCase();
-    const hits = q.length < GAME_LOG.searchMinChars ? [] : (data.profiles ?? []).filter((p) => p.name.toLowerCase().includes(q)).slice(0, GAME_LOG.searchResults);
+    const q = fold(state.query);
+    const all = q.length < GAME_LOG.searchMinChars ? [] : (data.profiles ?? []).filter((p) => folded.get(p.id)?.includes(q));
+    const hits = all.slice(0, GAME_LOG.searchResults);
     results.replaceChildren(...hits.map((p) => el('li', { className: 'player' }, [
-      el('button', { className: 'player-head', onClick: () => openPlayer(p.id) }, [
+      el('button', { className: 'player-head', onClick: () => openPlayer(p.id, '.search') }, [
         el('span', { className: 'p-main' }, [
           el('span', { className: 'p-name', text: p.name }),
           el('span', { className: 'p-meta', text: `${p.team} · ${p.pos} · ${p.log.length} games` }),
         ]),
       ]),
     ])));
+    if (all.length > hits.length) results.appendChild(el('li', { className: 'fine', text: `${all.length - hits.length} more: keep typing to narrow it down.` }));
     if (q.length >= GAME_LOG.searchMinChars && !hits.length) results.replaceChildren(el('li', { className: 'fine', text: 'No player found.' }));
   };
   const input = el('input', { className: 'search', attrs: { type: 'search', placeholder: 'Find a player: game log and contract', 'aria-label': 'Find a player', autocomplete: 'off', enterkeyhint: 'search' } });

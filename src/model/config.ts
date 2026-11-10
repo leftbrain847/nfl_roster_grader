@@ -473,6 +473,10 @@ export const GAME_LOG: GameLogConfig = {
   searchResults: 12,
 };
 
+/** Bump when GAME_LOG.columns changes order or meaning: a saved copy of the weekly stats from before is then dropped
+ * instead of being shown under the new labels. */
+export const GAME_LOG_VERSION = 1;
+
 export interface BuyConfig {
   /** Targets listed per buyer. */
   targetsPerTeam: number;

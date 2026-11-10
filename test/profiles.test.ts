@@ -73,6 +73,23 @@ describe('player pages', () => {
     expect(contractSeasons(undefined, 2026)).toEqual([]);
   });
 
+  it('void years (trailing placeholder years with no cash) are not contract years', () => {
+    const rows = contractSeasons([
+      { year: '2028', base_salary: 35.5, cap_number: 55.85, cash_paid: 40.5 },
+      { year: '2029', base_salary: 48.04, cap_number: 60.05, cash_paid: 50.54 },
+      { year: '2030', base_salary: 50, cap_number: 11.6, cash_paid: 0 },
+      { year: '2031', base_salary: 50, cap_number: 0, cash_paid: 0 },
+    ], 2026);
+    expect(rows.map((r) => r.year)).toEqual([2028, 2029]);
+    // a $0-cash year in the middle of a deal stays: only trailing ones are void
+    expect(contractSeasons([{ year: '2026', cash_paid: 0 }, { year: '2027', cash_paid: 5 }], 2026).map((r) => r.year)).toEqual([2026, 2027]);
+  });
+
+  it('a saved line with a different number of values than today\'s columns is not shown', () => {
+    const short = { ...inp, playerWeeks: [{ ...wr(1, 'g1', 'AAA', 'BBB', [7]) }] };
+    expect(buildProfiles(short, 2)).toEqual([]);
+  });
+
   it('the weekly stats file becomes one line per skill player and defender; a renamed column is an error', () => {
     const text = readFileSync(join(__dirname, 'fixtures', 'raw', 'stats_player__stats_player_week_2026.csv'), 'utf8');
     const ex = extractPlayerWeeks(parseCsv(text), 2026);

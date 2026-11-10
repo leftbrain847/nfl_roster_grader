@@ -14,7 +14,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { RATINGS_SOURCE, type RatingsSourceConfig } from '../src/model/config.ts';
+import { GAME_LOG_VERSION, RATINGS_SOURCE, type RatingsSourceConfig } from '../src/model/config.ts';
 import { buildModel } from '../src/model/index.ts';
 import { matchLinemen } from '../src/model/line.ts';
 import { parseRatings } from '../src/model/ratings.ts';
@@ -51,8 +51,13 @@ export interface Snapshot {
   lastModified: string | null;
   games?: string[];
   maxWeek?: number;
+  /** Layout version of `data`, for sources in SNAPSHOT_VERSION. */
+  version?: number;
   data: unknown;
 }
+
+/** Sources whose saved layout can change with config: a last good copy with another version is not reused. */
+export const SNAPSHOT_VERSION: Partial<Record<SourceId, number>> = { player_weeks: GAME_LOG_VERSION };
 
 export const DATA_DIR = 'data';
 export const OUTPUT_FILE = 'data/roster_grader.json';
@@ -77,7 +82,7 @@ function readSnapshot(root: string, id: SourceId, season: number): Snapshot | nu
   if (!existsSync(p)) return null;
   try {
     const s = JSON.parse(readFileSync(p, 'utf8')) as Snapshot;
-    return s.id === id && s.season === season ? s : null;
+    return s.id === id && s.season === season && s.version === SNAPSHOT_VERSION[id] ? s : null;
   } catch {
     return null;
   }
@@ -158,7 +163,7 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
         const ex: Extracted = await extract(s.id, res.bytes, url, season);
         const empty = Array.isArray(ex.data) ? ex.data.length === 0 : (ex.data as PbpData).teamGames?.length === 0;
         if (empty && s.id !== 'schedules') why = 'file had no rows for this season';
-        else fresh = { id: s.id, season, lastModified: isoDate(res.lastModified), games: ex.games?.slice().sort(), maxWeek: ex.maxWeek, data: ex.data };
+        else fresh = { id: s.id, season, lastModified: isoDate(res.lastModified), games: ex.games?.slice().sort(), maxWeek: ex.maxWeek, ...(SNAPSHOT_VERSION[s.id] !== undefined ? { version: SNAPSHOT_VERSION[s.id] } : {}), data: ex.data };
       }
     } catch (e) {
       why = 'could not read the file';

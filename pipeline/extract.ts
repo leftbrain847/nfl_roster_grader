@@ -322,7 +322,11 @@ const millions = (v: unknown): number | null => {
   return Number.isFinite(x) ? Math.round(x * 1000) / 1000 : null;
 };
 
-/** A contract's year-by-year rows, this season onward. The file's "Total" row and earlier years are dropped. */
+/**
+ * A contract's year-by-year rows, this season onward. The file's "Total" row and earlier years are dropped, and so
+ * are void years: placeholder years after the deal really ends, listed with a made-up base salary and no cash. They
+ * are the trailing rows with $0 cash paid.
+ */
 export function contractSeasons(history: unknown, season: number): ContractSeason[] {
   if (!Array.isArray(history)) return [];
   const out: ContractSeason[] = [];
@@ -331,7 +335,9 @@ export function contractSeasons(history: unknown, season: number): ContractSeaso
     if (!Number.isInteger(year) || year < season) continue;
     out.push({ year, base: millions(h.base_salary), cap: millions(h.cap_number), cash: millions(h.cash_paid) });
   }
-  return out.sort((a, b) => a.year - b.year);
+  out.sort((a, b) => a.year - b.year);
+  while (out.length && out[out.length - 1]?.cash === 0) out.pop();
+  return out;
 }
 
 /**
@@ -367,8 +373,9 @@ export async function extractContracts(buf: Uint8Array, season: number): Promise
       : undefined;
     const base = year ? n(year.base_salary) : NaN;
     const seasons = contractSeasons(row.season_history, season);
-    // an extension keeps its old years: the deal runs to the last year listed, not just signed + new years
-    const lastYear = Math.max(signed + (Number.isFinite(years) ? years : 1) - 1, seasons[seasons.length - 1]?.year ?? 0);
+    // an extension keeps its old years, so the deal runs to the last real year listed; without yearly rows, to
+    // signed + years
+    const lastYear = seasons[seasons.length - 1]?.year ?? signed + (Number.isFinite(years) ? years : 1) - 1;
     best.set(gsis, {
       signed,
       c: {
