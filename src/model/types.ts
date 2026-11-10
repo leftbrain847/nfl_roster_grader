@@ -40,7 +40,9 @@ export interface PlayerGame {
   db?: number; dbEpa?: number; dbSucc?: number; sk?: number; cpoeSum?: number; cpoeN?: number;
   car?: number; carEpa?: number; carSucc?: number;
   tgt?: number; tgtEpa?: number;
-  tkl?: number; tfl?: number; sck?: number; qbh?: number; pd?: number; int?: number;
+  tkl?: number; tfl?: number; sck?: number; qbh?: number; pd?: number; int?: number; ff?: number;
+  /** Big-play EPA (BIG_PLAYS in config.ts): the EPA taken from the offense on plays he made one, his share. */
+  big?: number;
 }
 
 export interface PfrPassRow { p: string; g: string; t: string; pressured: number; sacked: number }

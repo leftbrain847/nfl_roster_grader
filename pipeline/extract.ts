@@ -3,7 +3,7 @@
  * what it covers (game ids or latest week), which decides fresh / lagging / kept.
  */
 import { gunzipSync } from 'node:zlib';
-import { GAME_LOG, LINE_TARGETS, PLAY_FILTER } from '../src/model/config.ts';
+import { BIG_PLAYS, GAME_LOG, LINE_TARGETS, PLAY_FILTER } from '../src/model/config.ts';
 import type {
   Contract, ContractSeason, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
   PlayerWeek, RosterPlayer, SnapRow, TeamGame,
@@ -154,6 +154,12 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
     credit('pass_defense_1_player_id', 'pd', 1);
     credit('pass_defense_2_player_id', 'pd', 1);
     credit('interception_player_id', 'int', 1);
+    // forced fumbles: optional columns (an older file without them just has none)
+    credit('forced_fumble_player_1_player_id', 'ff', 1);
+    credit('forced_fumble_player_2_player_id', 'ff', 1);
+    // big plays: the EPA the play took from the offense, split evenly among the defenders who made one on it
+    const makers = new Set(BIG_PLAYS.columns.map((c) => r.str(row, c)).filter(Boolean));
+    if (makers.size && epa < 0) for (const id of makers) add(pg(id, g, def), 'big', -epa / makers.size);
   }
   const round4 = (x: number): number => Math.round(x * 1e4) / 1e4;
   const teamGames = [...cells.values()].map((c) => ({ ...c, passEpa: round4(c.passEpa), rushEpa: round4(c.rushEpa), covEpa: round4(c.covEpa) }));

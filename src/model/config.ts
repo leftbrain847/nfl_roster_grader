@@ -191,7 +191,7 @@ export type StatKey =
   | 'epaPerDropback' | 'successRate' | 'cpoe' | 'sackRate' | 'pressureToSack'
   | 'rushEpaPerCarry' | 'rushSuccessRate' | 'ryoePerCarry' | 'yacPerCarry' | 'brokenTacklesPerCarry'
   | 'epaPerTarget' | 'targetShare' | 'separation' | 'yacOverExpected' | 'dropRate'
-  | 'pressuresPer100' | 'sacksPer100' | 'tflPer100' | 'tacklesPer100' | 'missedTackleRate'
+  | 'pressuresPer100' | 'sacksPer100' | 'tflPer100' | 'bigPlaysPer100' | 'tacklesPer100' | 'missedTackleRate'
   | 'yardsPerTargetAllowed' | 'ratingAllowed' | 'completionAllowed' | 'ballsPlayedPerTarget';
 
 export interface StatDef {
@@ -224,12 +224,37 @@ export const STATS: Record<StatKey, StatDef> = {
   pressuresPer100: { label: 'Pressures/100 snaps', decimals: 1, source: 'PFR' },
   sacksPer100: { label: 'Sacks/100 snaps', decimals: 1, source: 'play-by-play' },
   tflPer100: { label: 'TFL/100 snaps', decimals: 1, source: 'play-by-play' },
+  bigPlaysPer100: { label: 'Big-play EPA/100 snaps', decimals: 1, source: 'play-by-play' },
   tacklesPer100: { label: 'Tackles/100 snaps', decimals: 1, source: 'play-by-play' },
   missedTackleRate: { label: 'Missed tackle rate', decimals: 0, suffix: '%', lowerIsBetter: true, source: 'PFR' },
   yardsPerTargetAllowed: { label: 'Yds/target allowed', decimals: 1, lowerIsBetter: true, source: 'PFR' },
   ratingAllowed: { label: 'Rating allowed', decimals: 0, lowerIsBetter: true, source: 'PFR' },
   completionAllowed: { label: 'Comp % allowed', decimals: 0, suffix: '%', lowerIsBetter: true, source: 'PFR' },
   ballsPlayedPerTarget: { label: 'INT+PD/target', decimals: 2, source: 'play-by-play + PFR' },
+};
+
+/**
+ * Big plays: the defensive plays worth more than a tackle (a sack, interception, forced fumble, tackle for loss, pass
+ * defensed or QB hit). Each is worth the EPA it took from the offense on that play (minus the play's EPA, never below
+ * 0), so a takeaway counts more than a sack, a third-down sack more than a first-down one, and a forced fumble the
+ * offense recovers little. When several defenders made a big play on one play, they split it evenly; a player
+ * credited with several things on one play (a sack is nearly always also a QB hit) is counted once. Every defender
+ * is credited the same way, whatever his position, and every defensive group weighs them the same.
+ */
+export interface BigPlaysConfig {
+  /** Play-by-play columns that credit a defender with a big play. */
+  columns: string[];
+  /** Its weight in every defensive group's production score. */
+  weight: number;
+}
+
+export const BIG_PLAYS: BigPlaysConfig = {
+  columns: [
+    'sack_player_id', 'half_sack_1_player_id', 'half_sack_2_player_id', 'interception_player_id',
+    'forced_fumble_player_1_player_id', 'forced_fumble_player_2_player_id', 'tackle_for_loss_1_player_id', 'tackle_for_loss_2_player_id',
+    'pass_defense_1_player_id', 'pass_defense_2_player_id', 'qb_hit_1_player_id', 'qb_hit_2_player_id',
+  ],
+  weight: 0.35,
 };
 
 export interface PositionConfig {
@@ -266,27 +291,27 @@ export const POSITIONS: Record<PositionGroup, PositionConfig> = {
   },
   EDGE: {
     label: 'Edge rusher',
-    weights: { pressuresPer100: 0.45, sacksPer100: 0.25, tflPer100: 0.2, missedTackleRate: 0.1 },
+    weights: { pressuresPer100: 0.5, bigPlaysPer100: BIG_PLAYS.weight, missedTackleRate: 0.15 },
     minimum: { per: 'defenseSnaps', perTeamGame: 20 },
   },
   IDL: {
     label: 'Interior D-line',
-    weights: { pressuresPer100: 0.35, sacksPer100: 0.15, tflPer100: 0.25, tacklesPer100: 0.15, missedTackleRate: 0.1 },
+    weights: { pressuresPer100: 0.35, bigPlaysPer100: BIG_PLAYS.weight, tacklesPer100: 0.15, missedTackleRate: 0.15 },
     minimum: { per: 'defenseSnaps', perTeamGame: 20 },
   },
   LB: {
     label: 'Linebacker',
-    weights: { tacklesPer100: 0.25, tflPer100: 0.2, missedTackleRate: 0.2, yardsPerTargetAllowed: 0.2, pressuresPer100: 0.15 },
+    weights: { bigPlaysPer100: BIG_PLAYS.weight, tacklesPer100: 0.2, missedTackleRate: 0.15, yardsPerTargetAllowed: 0.15, pressuresPer100: 0.15 },
     minimum: { per: 'defenseSnaps', perTeamGame: 25 },
   },
   CB: {
     label: 'Cornerback',
-    weights: { yardsPerTargetAllowed: 0.3, ratingAllowed: 0.25, completionAllowed: 0.15, ballsPlayedPerTarget: 0.2, missedTackleRate: 0.1 },
+    weights: { bigPlaysPer100: BIG_PLAYS.weight, yardsPerTargetAllowed: 0.25, ratingAllowed: 0.2, completionAllowed: 0.1, missedTackleRate: 0.1 },
     minimum: { per: 'defenseSnaps', perTeamGame: 30 },
   },
   S: {
     label: 'Safety',
-    weights: { yardsPerTargetAllowed: 0.25, ratingAllowed: 0.2, ballsPlayedPerTarget: 0.2, tacklesPer100: 0.15, missedTackleRate: 0.2 },
+    weights: { bigPlaysPer100: BIG_PLAYS.weight, yardsPerTargetAllowed: 0.2, ratingAllowed: 0.15, tacklesPer100: 0.15, missedTackleRate: 0.15 },
     minimum: { per: 'defenseSnaps', perTeamGame: 30 },
   },
 };

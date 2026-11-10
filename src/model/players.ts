@@ -109,6 +109,7 @@ export function aggregatePlayer(
         s.tacklesPer100 = (100 * sum(defGames, (r) => at(r.g)?.tkl)) / defenseSnaps;
         s.tflPer100 = (100 * sum(defGames, (r) => at(r.g)?.tfl)) / defenseSnaps;
         s.sacksPer100 = (100 * sum(defGames, (r) => at(r.g)?.sck)) / defenseSnaps;
+        s.bigPlaysPer100 = (100 * sum(defGames, (r) => at(r.g)?.big)) / defenseSnaps;
         const def = ctx.pfrDef.get(pfr);
         const pfrGames = defGames.filter((r) => ctx.pfrDefCoverage.has(`${r.t}|${r.g}`));
         const pfrSnaps = sum(pfrGames, (r) => r.def);
