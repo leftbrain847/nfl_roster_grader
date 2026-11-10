@@ -276,6 +276,70 @@ export interface PlayerProfile {
   contract: ContractDetail | null;
 }
 
+/** A fantasy-relevant player and what his points cost. */
+export interface FantasyValue {
+  id: string;
+  name: string;
+  team: string;
+  pos: string;
+  games: number;
+  points: number;
+  perGame: number;
+  /** This season's cap hit. */
+  capMillions: number;
+  /** Points per $1M of cap hit. */
+  perMillion: number;
+}
+
+export interface LineupPlayer { slot: string; id: string; name: string; team: string; pos: string; points: number; capMillions: number }
+
+/** The highest-scoring lineup whose cap hits fit a budget, over the season or in one week. */
+export interface Lineup {
+  budgetMillions: number;
+  scope: 'season' | 'week';
+  week: number | null;
+  points: number;
+  capMillions: number;
+  players: LineupPlayer[];
+}
+
+export interface FrontOfficePlayer {
+  id: string;
+  name: string;
+  group: PositionGroup;
+  /** Production percentile at the position. */
+  production: number;
+  /** Cap-hit percentile among ranked players at the position (100 = the most expensive). */
+  capPct: number;
+  capMillions: number;
+  /** The production players at that pay level usually give (league-wide straight-line fit). */
+  expected: number;
+  /** production - expected: positive = produces more than his pay predicts. */
+  surplus: number;
+}
+
+export interface FrontOffice {
+  team: string;
+  /** 0-100 among the 32 teams; null with too few priced players. */
+  grade: number | null;
+  rank: number | null;
+  /** Cap-weighted average surplus of the team's ranked players. */
+  surplus: number;
+  /** Cap dollars the grade covers (ranked players only). */
+  capMillions: number;
+  players: number;
+  bargains: FrontOfficePlayer[];
+  overpays: FrontOfficePlayer[];
+  /** Big cap hits on players without the volume to be ranked (hurt, benched): listed, not graded. */
+  idle: { id: string; name: string; pos: string; capMillions: number }[];
+}
+
+export interface ValueOutput {
+  fantasy: FantasyValue[];
+  lineups: Lineup[];
+  frontOffices: FrontOffice[];
+}
+
 export interface ModelOutput {
   schemaVersion: 1;
   /** True only for the built-in sample (no real data yet): the page shows a banner. */
@@ -287,6 +351,7 @@ export interface ModelOutput {
   teams: TeamResult[];
   players: PlayerResult[];
   profiles: PlayerProfile[];
+  value: ValueOutput;
   sources: SourceStatus[];
   rankingModes: RankingMode[];
   ratingsCredit: string | null;

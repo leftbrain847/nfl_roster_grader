@@ -32,6 +32,8 @@ All from the [nflverse-data](https://github.com/nflverse/nflverse-data) GitHub r
 | Contracts | `contracts/historical_contracts.parquet` | cap context on each player (APY, % of cap at signing, last year) and this season's base salary (for the base salary left). Only the parquet is current; the csv.gz stopped in 2022. Reading its year-by-year column takes ~1.3 GB, so `npm run refresh` raises Node's heap to 4 GB. |
 | Weekly player stats | `stats_player/stats_player_week_<season>.csv` | player pages: one game-log line per game (columns in `GAME_LOG`, `config.ts`) |
 
+**Value tab** (`src/model/value.ts`, settings in `VALUE`). Cap hit = the contract's row for this season. *Fantasy per $*: PPR points per $1M of cap hit, and the highest-scoring lineup whose cap hits fit a budget (found exactly: a knapsack per position, then the budget split across positions). *Front offices*: each ranked player's production percentile minus what a league-wide straight-line fit predicts from his cap-hit percentile at the position, averaged over a team's players by cap hit, then graded 0-100 across teams. Dead money, linemen and specialists are left out.
+
 **Freshness.** Each source's footer row shows its Last-Modified date and what it covers ("through week 8 + 1 of 14 week 9 games"). States: *Current* (every played game is in), *Behind* (some aren't; the note says whether that is the usual lag or overdue), *Kept last copy* (the download failed, the file didn't parse, or it held less than our last copy, so the last good copy in `data/sources/` is used), *Missing* (no copy ever; the page builds without those stats). Only schedules, play-by-play and rosters are required; without any copy of those the refresh fails and nothing is committed.
 
 ## Model

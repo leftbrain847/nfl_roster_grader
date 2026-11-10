@@ -477,6 +477,61 @@ export const GAME_LOG: GameLogConfig = {
  * instead of being shown under the new labels. */
 export const GAME_LOG_VERSION = 1;
 
+// ---------------------------------------------------------------------------------------------------------------
+// Value: production per cap dollar
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface ValueConfig {
+  fantasy: {
+    /** The game-log column that holds fantasy points. */
+    pointsColumn: string;
+    /** To be listed: this many points per game, by nflverse position. Positions not listed aren't fantasy positions. */
+    minPerGame: Record<string, number>;
+    /** ...in at least this share of his team's games. */
+    minGameShare: number;
+    /** Players listed per position on the page. */
+    listSize: number;
+    lineup: {
+      /** Starters per position. */
+      slots: Record<string, number>;
+      /** One more starter from any of these. */
+      flexFrom: string[];
+      flexLabel: string;
+    };
+    /** Total cap hit the lineup must fit under, millions. A game rule, not an NFL number. */
+    budgetsMillions: number[];
+    /** Cap hits are rounded up to this for the search, millions. */
+    budgetStepMillions: number;
+    /** Only the top scorers at each position are tried (the rest can't make a best lineup). */
+    candidatesPerPosition: number;
+  };
+  frontOffice: {
+    /** Bargains, overpays and idle players listed per team. */
+    listSize: number;
+    /** A bargain produces at least this percentile; an overpay is paid at least this percentile. */
+    bargainMinProduction: number;
+    overpayMinCapPct: number;
+    /** "Paid but not ranked": a cap hit at least this big, millions, on a player without the volume to be ranked. */
+    idleCapMillions: number;
+    /** A team needs this many ranked players with a known cap hit to get a grade. */
+    minPlayers: number;
+  };
+}
+
+export const VALUE: ValueConfig = {
+  fantasy: {
+    pointsColumn: 'PPR',
+    minPerGame: { QB: 12, RB: 8, WR: 8, TE: 6 },
+    minGameShare: 0.5,
+    listSize: 25,
+    lineup: { slots: { QB: 1, RB: 2, WR: 3, TE: 1 }, flexFrom: ['RB', 'WR', 'TE'], flexLabel: 'FLEX' },
+    budgetsMillions: [15, 30, 60],
+    budgetStepMillions: 0.1,
+    candidatesPerPosition: 60,
+  },
+  frontOffice: { listSize: 3, bargainMinProduction: 50, overpayMinCapPct: 50, idleCapMillions: 8, minPlayers: 8 },
+};
+
 export interface BuyConfig {
   /** Targets listed per buyer. */
   targetsPerTeam: number;
