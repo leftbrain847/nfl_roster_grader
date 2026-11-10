@@ -395,10 +395,40 @@ export interface Move {
   /** Trades file rows: the trade's id and, for a pick, which pick. */
   tradeId?: string;
   pickOf?: { season: number; round: number; number: number | null; conditional?: boolean };
-  /** Trades file rows: each team's whole-trade value (players and picks in dollars). */
-  tradeValue?: MoveGrade[];
+  /** Trades file rows: the whole trade, valued for each team (the same card on every row of the trade). */
+  trade?: TradeCard;
   /** The move judged for each team in it: the team first, then (trades) the team that gave the player up. */
   grades?: MoveGrade[];
+}
+
+/** One asset in a trade, valued in dollars of surplus, with the arithmetic spelled out. */
+export interface TradeAsset {
+  name: string;
+  /** gsis id (links to the player page), null for a pick. */
+  id: string | null;
+  pos: string;
+  /** null: no value (no ranked production, or a pick that can't be identified). */
+  millions: number | null;
+  how: string;
+}
+
+export interface TradeSide {
+  team: string;
+  /** 0-100 from net value; null when an asset in the trade has no value. */
+  score: number | null;
+  word: string | null;
+  valueIn: number;
+  valueOut: number;
+  net: number;
+  received: TradeAsset[];
+}
+
+export interface TradeCard {
+  id: string;
+  date: string;
+  sides: TradeSide[];
+  /** Why there's no grade, when there isn't one. */
+  note: string | null;
 }
 
 export interface MoveGrade {

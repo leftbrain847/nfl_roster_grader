@@ -11,7 +11,7 @@ import {
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
-import type { ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -676,17 +676,56 @@ function selectBox(label: string, value: string, options: [string, string][], on
   return el('label', { className: 'pick-wrap' }, [el('span', { className: 'pick-label', text: label }), s]);
 }
 
+const tradeMoney = (m: number): string => `${m < 0 ? '-' : ''}$${Math.abs(m)}M`;
+
+/** One trade: each team's grade from value in minus value out, then what it received and how each value was reached. */
+function tradeCard(t: TradeCard, i: number): HTMLElement {
+  const side = (s: TradeSide, j: number): HTMLElement => el('div', { className: 'trade-side' }, [
+    el('div', { className: 'trade-head' }, [
+      el('span', { className: 'trade-team', text: `${s.team} receives` }),
+      el('span', { className: `grade-word ${s.word ? `w-${s.word.toLowerCase()}` : 'w-none'}`, text: s.word ? `${s.word} ${s.score}` : 'Not graded' }),
+    ]),
+    el('p', { className: 'trade-sum num', text: `Value in ${tradeMoney(s.valueIn)} · out ${tradeMoney(s.valueOut)} · net ${s.net >= 0 ? '+' : ''}${tradeMoney(s.net)}` }),
+    el('ul', { className: 'trade-assets' }, s.received.map((a, k) => el('li', {}, [
+      el('div', { className: 'asset-line' }, [
+        a.id && profiles.has(a.id)
+          ? el('button', { className: 'asset-name link', text: a.name, attrs: { 'data-asset': `${i}-${j}-${k}` }, onClick: () => openPlayer(a.id as string, `[data-asset="${i}-${j}-${k}"]`) })
+          : el('span', { className: 'asset-name', text: a.name }),
+        el('span', { className: 'asset-value num', text: a.millions === null ? 'no value' : tradeMoney(a.millions) }),
+      ]),
+      el('p', { className: 'p-meta', text: a.how }),
+    ]))),
+  ]);
+  return el('li', { className: 'player trade-card' }, [
+    el('div', { className: 'trade-title' }, [
+      el('span', { className: 'move-kind k-trade', text: MOVES.labels.trade }),
+      el('span', { className: 'p-name', text: t.sides.map((s) => s.team).join(' ⇄ ') }),
+    ]),
+    tradeVerdict(t),
+    ...t.sides.map(side),
+    t.note ? el('p', { className: 'p-meta', text: t.note }) : null,
+  ]);
+}
+
+/** The headline: who came out ahead, by how much (or why there's no grade). */
+function tradeVerdict(t: TradeCard): HTMLElement {
+  if (t.note) return el('p', { className: 'trade-verdict w-none', text: t.note });
+  const best = [...t.sides].sort((a, b) => b.net - a.net)[0];
+  return el('p', { className: 'trade-verdict', text: !best || best.net === 0 ? 'Even trade' : `${best.team} wins by ${tradeMoney(best.net)} of value` });
+}
+
 function movesView(): HTMLElement {
   const teamCodes = [...new Set(moves.flatMap((m) => [m.team, m.from ?? '']).filter(Boolean))].sort();
   const groups = [...MOVES.positionGroups, ...(moves.some((m) => m.group === MOVES.other) ? [MOVES.other] : [])];
   const list = moves.filter((m) => (state.moveTeam === 'all' || m.team === state.moveTeam || m.from === state.moveTeam)
     && (state.moveGroup === 'all' || m.group === state.moveGroup)
     && (state.moveKind === 'all' || m.kind === state.moveKind)
-    && (state.moveGraded === 'all' || (m.grades ?? []).some((g) => g.score !== null)));
+    && (state.moveGraded === 'all' || (m.grades ?? []).some((g) => g.score !== null) || (m.trade?.sides ?? []).some((t) => t.score !== null)))
+    // a trades-file trade is one card: keep its first row only
+    .filter((m, i, all) => !m.tradeId || all.findIndex((o) => o.tradeId === m.tradeId) === i);
   const shown = list.slice(0, state.moveShown);
   let lastWhen = '';
   const items: HTMLElement[] = [];
-  const tradeShown = new Set<string>();
   const gradeLine = (g: MoveGrade): HTMLElement => el('p', { className: 'move-grade' }, [
     el('span', { className: `grade-word ${g.word ? `w-${g.word.toLowerCase()}` : 'w-none'}`, text: g.word ? `${g.team} ${g.word} ${g.score}` : g.team }),
     el('span', { className: 'p-meta', text: g.reason }),
@@ -695,6 +734,10 @@ function movesView(): HTMLElement {
     if (m.when !== lastWhen) {
       lastWhen = m.when;
       items.push(el('li', { className: 'move-when', text: m.when }));
+    }
+    if (m.trade) {
+      items.push(tradeCard(m.trade, i));
+      return;
     }
     const main = [
       el('span', { className: `move-kind k-${m.kind}`, text: MOVES.labels[m.kind] }),
@@ -709,9 +752,6 @@ function movesView(): HTMLElement {
         : el('div', { className: 'player-head' }, main),
       // ungraded lines only where a grade is expected (trades); elsewhere they'd be noise on every depth move
       m.grades?.some((g) => g.score !== null || m.kind === 'trade' || m.kind === 'moved') ? el('div', { className: 'move-grades' }, m.grades.map(gradeLine)) : null,
-      // the whole trade's value, once (on the trade's first row shown)
-      m.tradeId && m.tradeValue && !tradeShown.has(m.tradeId) && tradeShown.add(m.tradeId)
-        ? el('div', { className: 'move-grades trade-value' }, m.tradeValue.map(gradeLine)) : null,
     ]));
   });
   return el('section', { className: 'rankings' }, [
@@ -726,7 +766,7 @@ function movesView(): HTMLElement {
     el('p', { className: 'fine', text: `${list.length} moves` }),
     list.length ? el('ol', { className: 'players moves' }, items) : el('p', { className: 'fine', text: 'No moves match.' }),
     list.length > shown.length ? el('button', { className: 'more', text: `Show more (${list.length - shown.length} left)`, onClick: () => { state.moveShown += MOVES_PAGE; draw(); } }) : null,
-    el('p', { className: 'fine', text: 'Grades (0-100) judge each move for the team: how much it needed the position before the move (its unit grades from the games before; offseason and week 1–2 moves use the season so far and say so), its playoff odds before the move (contenders should add talent; teams out of the race should sell it), the player’s production this season to date, and his cap hit in each season left on his deal against what that production is worth. For the team that lets a player go, each part counts the other way. Trades from the trades file also get a whole-trade grade: each player’s worth minus his cap hit over the seasons left, against each pick’s value from Ben Baldwin’s draft value chart (Open Source Football, CC BY-NC 4.0; see Credits) in today’s cap dollars, with a future pick valued one round later per draft away. A trade with an asset that has no value (a lineman, a backup without enough snaps) isn’t graded. Not counted: cap space and dead money. Linemen, specialists and players without enough snaps to be ranked aren’t graded.' }),
+    el('p', { className: 'fine', text: 'Grades (0-100) judge each move for the team: how much it needed the position before the move (its unit grades from the games before; offseason and week 1–2 moves use the season so far and say so), its playoff odds before the move (contenders should add talent; teams out of the race should sell it), the player’s production this season to date, and his cap hit in each season left on his deal against what that production is worth. For the team that lets a player go, each part counts the other way. A trade from the trades file is graded as a whole, for each team, from the value it received minus the value it gave, in dollars of surplus: a player is worth what players at his position with his production percentile are paid, minus his cap hits over the seasons left (up to 4); a pick is its surplus on Ben Baldwin’s draft value chart (Open Source Football, CC BY-NC 4.0; see Credits) × today’s cap × 4 rookie seasons, a pick with no slot yet at the middle of its round, a future pick one round later per draft away. A trade with an asset that has no value (a lineman, a backup without enough snaps) isn’t graded. Not counted: cap space and dead money. Linemen, specialists and players without enough snaps to be ranked aren’t graded.' }),
     el('p', { className: 'fine', text: 'In-season moves are read from week-to-week changes in the weekly rosters, so they are dated by week, and a player who went straight from one roster to another is listed as a trade or waiver claim (the rosters don’t say which), unless players went both ways between the two teams that week or the trades file has it. The trades file is updated a few times a year; its date is in Sources below.' }),
   ]);
 }
