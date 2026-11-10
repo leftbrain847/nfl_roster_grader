@@ -405,6 +405,74 @@ export interface TradeCostConfig {
 
 export const TRADE_COST: TradeCostConfig = { payWeeks: 18 };
 
+// ---------------------------------------------------------------------------------------------------------------
+// Player pages: the game log
+// ---------------------------------------------------------------------------------------------------------------
+
+export type LogKind = 'QB' | 'SKILL' | 'DEF';
+
+export interface LogColumn {
+  label: string;
+  /** Spoken name, for the column's tooltip and screen readers. */
+  title: string;
+  /** Columns of the nflverse weekly player stats file, added together. */
+  from: string[];
+  decimals: number;
+}
+
+export interface GameLogConfig {
+  /** nflverse position_group -> which set of columns the player's log shows. Groups not listed get no page. */
+  groupKind: Record<string, LogKind>;
+  columns: Record<LogKind, LogColumn[]>;
+  /** Which snap count is the player's share: offense or defense. */
+  snapSide: Record<LogKind, 'off' | 'def'>;
+  /** Player search: characters typed before results show, and how many show. */
+  searchMinChars: number;
+  searchResults: number;
+}
+
+export const GAME_LOG: GameLogConfig = {
+  groupKind: { QB: 'QB', RB: 'SKILL', WR: 'SKILL', TE: 'SKILL', DL: 'DEF', LB: 'DEF', DB: 'DEF' },
+  columns: {
+    QB: [
+      { label: 'Cmp', title: 'Completions', from: ['completions'], decimals: 0 },
+      { label: 'Att', title: 'Pass attempts', from: ['attempts'], decimals: 0 },
+      { label: 'Yds', title: 'Passing yards', from: ['passing_yards'], decimals: 0 },
+      { label: 'TD', title: 'Passing touchdowns', from: ['passing_tds'], decimals: 0 },
+      { label: 'Int', title: 'Interceptions thrown', from: ['passing_interceptions'], decimals: 0 },
+      { label: 'Sk', title: 'Sacks taken', from: ['sacks_suffered'], decimals: 0 },
+      { label: 'Car', title: 'Carries', from: ['carries'], decimals: 0 },
+      { label: 'RuYd', title: 'Rushing yards', from: ['rushing_yards'], decimals: 0 },
+      { label: 'RuTD', title: 'Rushing touchdowns', from: ['rushing_tds'], decimals: 0 },
+      { label: 'EPA', title: 'Expected points added, passing plus rushing', from: ['passing_epa', 'rushing_epa'], decimals: 1 },
+      { label: 'PPR', title: 'Fantasy points (PPR scoring)', from: ['fantasy_points_ppr'], decimals: 1 },
+    ],
+    SKILL: [
+      { label: 'Car', title: 'Carries', from: ['carries'], decimals: 0 },
+      { label: 'RuYd', title: 'Rushing yards', from: ['rushing_yards'], decimals: 0 },
+      { label: 'RuTD', title: 'Rushing touchdowns', from: ['rushing_tds'], decimals: 0 },
+      { label: 'Tgt', title: 'Targets', from: ['targets'], decimals: 0 },
+      { label: 'Rec', title: 'Receptions', from: ['receptions'], decimals: 0 },
+      { label: 'ReYd', title: 'Receiving yards', from: ['receiving_yards'], decimals: 0 },
+      { label: 'ReTD', title: 'Receiving touchdowns', from: ['receiving_tds'], decimals: 0 },
+      { label: 'EPA', title: 'Expected points added, rushing plus receiving', from: ['rushing_epa', 'receiving_epa'], decimals: 1 },
+      { label: 'PPR', title: 'Fantasy points (PPR scoring)', from: ['fantasy_points_ppr'], decimals: 1 },
+    ],
+    DEF: [
+      { label: 'Tkl', title: 'Tackles, solo and assisted', from: ['def_tackles_solo', 'def_tackles_with_assist', 'def_tackle_assists'], decimals: 0 },
+      { label: 'TFL', title: 'Tackles for loss', from: ['def_tackles_for_loss'], decimals: 0 },
+      { label: 'Sck', title: 'Sacks', from: ['def_sacks'], decimals: 1 },
+      { label: 'QBH', title: 'Quarterback hits', from: ['def_qb_hits'], decimals: 0 },
+      { label: 'Int', title: 'Interceptions', from: ['def_interceptions'], decimals: 0 },
+      { label: 'PD', title: 'Passes defended', from: ['def_pass_defended'], decimals: 0 },
+      { label: 'FF', title: 'Forced fumbles', from: ['def_fumbles_forced'], decimals: 0 },
+    ],
+  },
+  snapSide: { QB: 'off', SKILL: 'off', DEF: 'def' },
+  searchMinChars: 2,
+  searchResults: 12,
+};
+
 export interface BuyConfig {
   /** Targets listed per buyer. */
   targetsPerTeam: number;
