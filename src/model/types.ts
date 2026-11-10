@@ -384,6 +384,18 @@ export interface Move {
   /** The other team, if any (traded from, signed from). */
   from: string | null;
   detail: string;
+  /** A traded draft pick (not a player). */
+  pick?: boolean;
+  /** The move judged for each team in it: the team first, then (trades) the team that gave the player up. */
+  grades?: MoveGrade[];
+}
+
+export interface MoveGrade {
+  team: string;
+  /** 0-100, or null when it can't be graded (the reason says why). */
+  score: number | null;
+  word: string | null;
+  reason: string;
 }
 
 export interface ModelOutput {

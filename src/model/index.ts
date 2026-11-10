@@ -10,6 +10,7 @@ import { divisionOf, records, recordText, scheduleLeft, simulatePlayoffs, streng
 import { rankPlayers } from './players.ts';
 import { buildProfiles } from './profiles.ts';
 import { buildMoves } from './moves.ts';
+import { gradeMoves } from './moveGrades.ts';
 import { buildValue } from './value.ts';
 import { assertRatingsAllowed } from './ratings.ts';
 import { round } from './stats.ts';
@@ -123,6 +124,11 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
   }
 
   const profiles = buildProfiles(inp, throughWeek);
+  const value = buildValue(inp, profiles, players, teams, played);
+  const moves = gradeMoves(buildMoves(inp), {
+    season: inp.season, games: inp.games, teamGames: inp.teamGames, teams, seasonUnits: grades.units,
+    players, values: value.players, contracts: inp.contracts,
+  });
   const modes: RankingMode[] = ratingsCfg.enabled && inp.ratings ? ['production', 'ratings', 'composite'] : ['production'];
   return {
     schemaVersion: 1,
@@ -133,8 +139,8 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     teams: results,
     players,
     profiles,
-    value: buildValue(inp, profiles, players, teams, played),
-    moves: buildMoves(inp),
+    value,
+    moves,
     sources: opts.sources,
     rankingModes: modes,
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,

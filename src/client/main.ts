@@ -38,6 +38,7 @@ const state = {
   moveTeam: 'all',
   moveGroup: 'all',
   moveKind: 'all',
+  moveGraded: 'all',
   moveShown: MOVES_PAGE,
   fantasyPos: 'All',
   budget: VALUE.fantasy.budgetsMillions[0] ?? 0,
@@ -679,7 +680,8 @@ function movesView(): HTMLElement {
   const groups = [...MOVES.positionGroups, ...(moves.some((m) => m.group === MOVES.other) ? [MOVES.other] : [])];
   const list = moves.filter((m) => (state.moveTeam === 'all' || m.team === state.moveTeam || m.from === state.moveTeam)
     && (state.moveGroup === 'all' || m.group === state.moveGroup)
-    && (state.moveKind === 'all' || m.kind === state.moveKind));
+    && (state.moveKind === 'all' || m.kind === state.moveKind)
+    && (state.moveGraded === 'all' || (m.grades ?? []).some((g) => g.score !== null)));
   const shown = list.slice(0, state.moveShown);
   let lastWhen = '';
   const items: HTMLElement[] = [];
@@ -699,6 +701,11 @@ function movesView(): HTMLElement {
       m.id && profiles.has(m.id)
         ? el('button', { className: 'player-head', attrs: { 'data-move': String(i) }, onClick: () => openPlayer(m.id as string, `[data-move="${i}"]`) }, main)
         : el('div', { className: 'player-head' }, main),
+      // ungraded lines only where a grade is expected (trades); elsewhere they'd be noise on every depth move
+      m.grades?.some((g) => g.score !== null || m.kind === 'trade' || m.kind === 'moved') ? el('div', { className: 'move-grades' }, m.grades.map((g) => el('p', { className: 'move-grade' }, [
+        el('span', { className: `grade-word ${g.word ? `w-${g.word.toLowerCase()}` : 'w-none'}`, text: g.word ? `${g.team} ${g.word} ${g.score}` : `${g.team} not graded` }),
+        el('span', { className: 'p-meta', text: g.reason }),
+      ]))) : null,
     ]));
   });
   return el('section', { className: 'rankings' }, [
@@ -708,10 +715,12 @@ function movesView(): HTMLElement {
       selectBox('Team', state.moveTeam, [['all', 'All teams'], ...teamCodes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()])], (v) => { state.moveTeam = v; state.moveShown = MOVES_PAGE; draw(); }),
       selectBox('Type', state.moveKind, [['all', 'All types'], ...(Object.keys(MOVES.labels) as MoveKind[]).filter((k) => moves.some((m) => m.kind === k)).map((k): [string, string] => [k, MOVES.labels[k]])], (v) => { state.moveKind = v; state.moveShown = MOVES_PAGE; draw(); }),
       selectBox('Position', state.moveGroup, [['all', 'All positions'], ...groups.map((g): [string, string] => [g, g])], (v) => { state.moveGroup = v; state.moveShown = MOVES_PAGE; draw(); }),
+      selectBox('Grades', state.moveGraded, [['all', 'All moves'], ['graded', 'Graded only']], (v) => { state.moveGraded = v; state.moveShown = MOVES_PAGE; draw(); }),
     ]),
     el('p', { className: 'fine', text: `${list.length} moves` }),
     list.length ? el('ol', { className: 'players moves' }, items) : el('p', { className: 'fine', text: 'No moves match.' }),
     list.length > shown.length ? el('button', { className: 'more', text: `Show more (${list.length - shown.length} left)`, onClick: () => { state.moveShown += MOVES_PAGE; draw(); } }) : null,
+    el('p', { className: 'fine', text: 'Grades (0-100) judge each move for the team: how much it needed the position before the move (its unit grades from the games before; offseason and week 1–2 moves use the season so far and say so), the player’s production this season to date, and his cap hit in each season left on his deal against what that production is worth. For the team that lets a player go, each part counts the other way. Not counted: cap space, dead money, and draft picks, which aren’t priced. Linemen, specialists and players without enough snaps to be ranked aren’t graded.' }),
     el('p', { className: 'fine', text: 'In-season moves are read from week-to-week changes in the weekly rosters, so they are dated by week, and a player who changed teams without a matching trade is shown as a trade or waiver claim. The trades file is updated a few times a year; its date is in Sources below.' }),
   ]);
 }
