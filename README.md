@@ -50,11 +50,13 @@ Everything tunable is in `src/model/config.ts`.
     | RB | EPA/carry 30, success rate 20, RYOE/carry 25, yards after contact/carry 15, broken tackles/carry 10 | 6 carries |
     | WR | EPA/target 35, target share 25, separation 15, YAC over expected 10, drop rate 15 (low) | 3.5 targets |
     | TE | EPA/target 40, target share 20, separation 15, YAC over expected 10, drop rate 15 (low) | 2.5 targets |
-    | EDGE (DE, OLB) | pressures/100 snaps 45, sacks/100 25, TFL/100 20, missed tackle rate 10 (low) | 20 defense snaps |
-    | IDL (DT, NT) | pressures/100 35, sacks/100 15, TFL/100 25, tackles/100 15, missed tackle rate 10 (low) | 20 defense snaps |
-    | LB | tackles/100 25, TFL/100 20, missed tackle rate 20 (low), yards/target allowed 20 (low), pressures/100 15 | 25 defense snaps |
-    | CB | yards/target allowed 30, rating allowed 25, comp % allowed 15 (all low), INT+PD/target 20, missed tackle rate 10 (low) | 30 defense snaps |
-    | S | yards/target allowed 25, rating allowed 20 (low), INT+PD/target 20, tackles/100 15, missed tackle rate 20 (low) | 30 defense snaps |
+    | EDGE (DE, OLB) | pressures/100 snaps 50, big plays/100 35, missed tackle rate 15 (low) | 20 defense snaps |
+    | IDL (DT, NT) | pressures/100 35, big plays/100 35, tackles/100 15, missed tackle rate 15 (low) | 20 defense snaps |
+    | LB | big plays/100 35, tackles/100 20, missed tackle rate 15 (low), yards/target allowed 15 (low), pressures/100 15 | 25 defense snaps |
+    | CB | big plays/100 35, yards/target allowed 25, rating allowed 20, comp % allowed 10 (all low), missed tackle rate 10 (low) | 30 defense snaps |
+    | S | big plays/100 35, yards/target allowed 20, rating allowed 15 (low), tackles/100 15, missed tackle rate 15 (low) | 30 defense snaps |
+
+    *Big plays* count the same for every defender, at the same weight in every group: a sack, interception, forced fumble or tackle for loss is 1, a pass defensed or QB hit 0.5. Each play credits a player once, with the highest of what he did on it (a sack is also a QB hit and usually a TFL in the data; an interception is also a pass defensed). Values in `BIG_PLAYS`, `config.ts`.
 
     Kickers, punters and long snappers aren't ranked, and offensive linemen aren't ranked individually: open data has no per-player stat good enough. The line is graded by team instead (below).
 4. **Offensive line** (`line.ts`). Team-level grades, not opponent-adjusted: **pass protection** = QB pressures (PFR) per dropback (play-by-play), counting only the team-games PFR covers; **run blocking** = rushing yards before contact per carry (PFR). Both also reflect the QB, backs and scheme, and the page says so. Grade and rank as for units. Shown on each team sheet and under Players → OL.

@@ -40,7 +40,9 @@ export interface PlayerGame {
   db?: number; dbEpa?: number; dbSucc?: number; sk?: number; cpoeSum?: number; cpoeN?: number;
   car?: number; carEpa?: number; carSucc?: number;
   tgt?: number; tgtEpa?: number;
-  tkl?: number; tfl?: number; sck?: number; qbh?: number; pd?: number; int?: number;
+  tkl?: number; tfl?: number; sck?: number; qbh?: number; pd?: number; int?: number; ff?: number;
+  /** Big plays (BIG_PLAYS in config.ts): at most one credit per play, the highest of what he did on it. */
+  big?: number;
 }
 
 export interface PfrPassRow { p: string; g: string; t: string; pressured: number; sacked: number }
