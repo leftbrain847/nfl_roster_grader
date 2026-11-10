@@ -244,4 +244,13 @@ button:focus-visible, tr:focus-visible { outline: 3px solid var(--accent); outli
 .move-kind { flex: none; width: 5.6em; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); line-height: 1.2; }
 .k-trade, .k-moved { color: var(--accent); } .k-draft, .k-signed, .k-activated, .k-promoted { color: var(--buy); } .k-released, .k-retired { color: var(--sell); } .k-reserve { color: var(--pat); }
 .tabs { flex-wrap: wrap; }
-.trade-value { border-top: 1px solid var(--line); padding-top: 4px; }
+.trade-card { display: grid; gap: 10px; padding: 12px; }
+.trade-verdict { margin: 0; font-weight: 700; }
+.trade-title { display: flex; align-items: center; gap: 10px; }
+.trade-side { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 4px; }
+.trade-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.trade-team { font-weight: 700; }
+.trade-sum { margin: 0; font-size: 13px; color: var(--muted); }
+.trade-assets { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+.asset-line { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.asset-name.link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-align: left; cursor: pointer; text-decoration: underline; }

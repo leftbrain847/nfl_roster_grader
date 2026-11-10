@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PICK_VALUE } from '../src/model/config.ts';
 import { PICK_SURPLUS_PCT_OF_CAP } from '../src/model/pickChart.ts';
-import { nextDraft, pickPrice, playerSurplus, tradeValues } from '../src/model/tradeValue.ts';
+import { nextDraft, pickPrice, playerSurplus, priceAsset, tradeValues } from '../src/model/tradeValue.ts';
 import type { Contract, Move, PlayerValue } from '../src/model/types.ts';
 
 const dollars = (pick: number): number => Math.round((PICK_SURPLUS_PCT_OF_CAP[pick - 1] as number) / 100 * PICK_VALUE.capMillions * PICK_VALUE.rookieYears * 10) / 10;
@@ -52,18 +52,38 @@ describe('whole-trade value', () => {
 
   const pick1 = row({ name: '2027 round 1 pick', team: 'PHI', from: 'JAX', pick: true, pickOf: { season: 2027, round: 1, number: null } });
 
-  it('each team: value in minus value out, both sides mirror, every row of the trade carries it', () => {
+  it('each team: value in minus value out, both sides mirror, every row of the trade carries the same card', () => {
     const out = tradeValues([row({ id: 'p1', name: 'Star', team: 'JAX', from: 'PHI' }), pick1], 2026, values, contracts);
-    const [jax, phi] = out[0]?.tradeValue ?? [];
-    expect(jax?.team).toBe('JAX');
-    expect(jax?.reason).toBe(`Whole trade: value in $14M, out $${dollars(16)}M (net -$${Math.round((dollars(16) - 14) * 10) / 10}M)`);
+    const card = out[0]?.trade;
+    const [jax, phi] = card?.sides ?? [];
+    expect(jax).toMatchObject({ team: 'JAX', valueIn: 14, valueOut: dollars(16), net: Math.round((14 - dollars(16)) * 10) / 10 });
     expect((jax?.score ?? 0) + (phi?.score ?? 0)).toBe(100);
-    expect(out[1]?.tradeValue).toEqual(out[0]?.tradeValue);
+    expect(card?.note).toBeNull();
+    expect(out[1]?.trade).toEqual(card);
+  });
+
+  it('says how each value was reached', () => {
+    const [jax, phi] = tradeValues([row({ id: 'p1', name: 'Star', team: 'JAX', from: 'PHI' }), pick1], 2026, values, contracts)[0]?.trade?.sides ?? [];
+    expect(jax?.received).toEqual([{ name: 'Star', id: 'p1', pos: '', millions: 14, how: '90th pct IDL producer, worth $18M/yr (what the 90th pct IDL is paid) − cap hits $10M + $12M, over 2 seasons' }]);
+    expect(phi?.received[0]?.how).toBe(`2027 1st (valued as pick 16, the middle of the round): Baldwin chart surplus ${PICK_SURPLUS_PCT_OF_CAP[15]}% of the cap per season × $301.2M cap × 4 rookie seasons`);
+  });
+
+  it('rate rule: the text shows the discount it applies', () => {
+    const a = priceAsset(row({ name: 'p', pick: true, pickOf: { season: 2028, round: 1, number: null } }), 2026, values, contracts, { ...PICK_VALUE, future: { rule: 'rate', rate: 0.1 } });
+    expect(a.how).toMatch(/× 4 rookie seasons × 0\.9$/);
+    expect(a.millions).toBe(Math.round(dollars(16) * 0.9 * 10) / 10);
+  });
+
+  it('unpriced branches say why', () => {
+    expect(priceAsset(row({ name: 'p', pick: true }), 2026, values, contracts).how).toBe('Pick not identified in the trades file');
+    expect(priceAsset(row({ id: 'x', name: 'Backup', group: 'QB' }), 2026, values, contracts).how).toBe('No value: not enough snaps this season to be ranked');
   });
 
   it('an asset with no value (a lineman, an unranked backup): no grade for anyone in the trade, and it says why', () => {
-    const out = tradeValues([row({ id: 'ol', name: 'Tackle', team: 'JAX', from: 'PHI' }), pick1], 2026, values, contracts);
-    for (const g of out[0]?.tradeValue ?? []) expect(g).toMatchObject({ score: null, word: null, reason: expect.stringContaining('Whole trade not graded: no value for Tackle') });
+    const card = tradeValues([row({ id: 'ol', name: 'Tackle', team: 'JAX', from: 'PHI', group: 'OL' }), pick1], 2026, values, contracts)[0]?.trade;
+    expect(card?.note).toBe('Not graded: no value for Tackle');
+    for (const s of card?.sides ?? []) expect(s).toMatchObject({ score: null, word: null });
+    expect(card?.sides[0]?.received[0]).toMatchObject({ millions: null, how: 'No value: no individual production stat for his position' });
   });
 
   it('three teams: each gets its own in and out', () => {
@@ -72,8 +92,8 @@ describe('whole-trade value', () => {
       row({ name: 'pick A', team: 'PHI', from: 'NYG', pick: true, pickOf: { season: 2027, round: 1, number: null } }),
       row({ name: 'pick B', team: 'NYG', from: 'JAX', pick: true, pickOf: { season: 2027, round: 1, number: null } }),
     ], 2026, values, contracts);
-    const by = Object.fromEntries((out[0]?.tradeValue ?? []).map((g) => [g.team, g.reason]));
+    const by = Object.fromEntries((out[0]?.trade?.sides ?? []).map((s) => [s.team, s]));
     expect(Object.keys(by).sort()).toEqual(['JAX', 'NYG', 'PHI']);
-    expect(by.NYG).toContain(`value in $${dollars(16)}M, out $${dollars(16)}M (net +$0M)`);
+    expect(by.NYG).toMatchObject({ valueIn: dollars(16), valueOut: dollars(16), net: 0 });
   });
 });

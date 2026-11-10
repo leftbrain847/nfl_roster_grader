@@ -119,6 +119,7 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
   };
 
   const graded = moves.map((m) => {
+    if (m.tradeId) return m;   // a trades-file trade is judged as a whole (tradeValues), not asset by asset
     const grades: MoveGrade[] = [];
     if (cfg.adds.includes(m.kind)) {
       grades.push(one(m, m.team, true));
