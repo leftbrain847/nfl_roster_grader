@@ -132,7 +132,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     teams: results,
     players,
     profiles,
-    value: buildValue(inp, profiles, players, teams, played, throughWeek),
+    value: buildValue(inp, profiles, players, teams, played),
     sources: opts.sources,
     rankingModes: modes,
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,

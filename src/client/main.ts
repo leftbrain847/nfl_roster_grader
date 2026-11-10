@@ -1,6 +1,7 @@
 /**
- * Roster Grader page. Reads the model output baked in at build time (no network), renders the league table, a team
- * sheet (unit bars, verdict, reason, buy targets), position rankings and a page per player (game log, contract). Text goes in as text, never HTML.
+ * Roster Grader page. Reads the model output baked in at build time (no network). Three tabs: Value (production and
+ * fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
+ * team, and the team grade board with its buy / sell calls and team sheets). Text goes in as text, never HTML.
  */
 import data from '@roster-data';
 import {
@@ -9,14 +10,14 @@ import {
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
-import type { ContractDetail, FrontOffice, FrontOfficePlayer, LineTarget, Lineup, PlayerContract, PlayerProfile, PlayerResult, TeamResult } from '../model/types.ts';
+import type { ContractDetail, FrontOffice, LineTarget, Lineup, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 type SortKey = 'team' | 'verdict' | 'odds' | UnitKey;
-type View = 'league' | 'players' | 'value';
+type View = 'value' | 'players' | 'office';
 
 const state = {
-  view: 'league' as View,
+  view: 'value' as View,
   sort: 'odds' as SortKey,
   desc: true,
   filter: 'all' as Verdict | 'all',
@@ -26,7 +27,11 @@ const state = {
   /** The open player page, on top of the team sheet if both are open. */
   player: null as string | null,
   query: '',
-  valueView: 'fantasy' as 'fantasy' | 'offices',
+  valueView: 'production' as 'production' | 'fantasy',
+  valuePos: 'All',
+  valueOrder: 'best' as 'best' | 'worst',
+  rosterBudget: VALUE.roster.budgetsMillions[0] ?? 0,
+  officeView: 'cap' as 'cap' | 'board',
   fantasyPos: 'All',
   budget: VALUE.fantasy.budgetsMillions[0] ?? 0,
   lineupScope: 'season' as Lineup['scope'],
@@ -37,7 +42,8 @@ const state = {
 const players = new Map(data.players.map((p) => [p.id, p]));
 const teams = new Map(data.teams.map((t) => [t.team, t]));
 const profiles = new Map((data.profiles ?? []).map((p) => [p.id, p]));
-if (!data.value) data.value = { fantasy: [], lineups: [], frontOffices: [] };
+// a data file from before the Value tab (or before part of it) still loads
+data.value = Object.assign({ players: [], rosters: [], fantasy: [], lineups: [], frontOffices: [] }, data.value as Partial<typeof data.value> | undefined);
 const VERDICT_ORDER: Record<Verdict, number> = { buy: 0, 'stand pat': 1, sell: 2 };
 const pct = (x: number): string => {
   const p = Math.round(100 * x);
@@ -135,7 +141,7 @@ function leagueView(): HTMLElement {
         el('tbody', {}, rows),
       ]),
     ]),
-    el('p', { className: 'fine', text: `Grades are 0-100 (50 = league average) from opponent-adjusted EPA per play. Odds: ${PLAYOFF_SIM.label.toLowerCase()}. Tap a team.` }),
+    el('p', { className: 'fine', text: `Grades are 0-100 (50 = league average) from opponent-adjusted EPA per play. Call = buy, sell or stand pat at the trade deadline. Odds: ${PLAYOFF_SIM.label.toLowerCase()}. Tap a team for its sheet and trade targets.` }),
   ]);
 }
 
@@ -492,8 +498,42 @@ function playersView(): HTMLElement {
 
 // ------------------------------------------------------------------ value
 
-const chip = (text: string, on: boolean, onClick: () => void): HTMLElement =>
-  el('button', { className: `chip${on ? ' on' : ''}`, text, attrs: { 'aria-pressed': String(on) }, onClick });
+const chip = (text: string, on: boolean, onClick: () => void, key?: string): HTMLElement =>
+  el('button', { className: `chip${on ? ' on' : ''}`, text, attrs: { 'aria-pressed': String(on), ...(key ? { 'data-sub': key } : {}) }, onClick });
+const dollars = (m: number): string => `${m >= 0 ? '+' : '-'}$${Math.abs(m).toFixed(1)}M`;
+const valueMeta = (p: PlayerValue, team: boolean): string =>
+  `${team ? `${p.team} · ` : ''}${p.group} · ${ordinal(Math.round(p.production))} percentile · worth ${money(p.worthMillions)}, cap hit ${money(p.capMillions)}`;
+
+function productionView(): HTMLElement {
+  const value = data.value;
+  const pool = value.players.filter((p) => state.valuePos === 'All' || p.group === state.valuePos);
+  const list = (state.valueOrder === 'best' ? pool : [...pool].reverse()).slice(0, VALUE.listSize);
+  const roster = value.rosters.find((l) => l.budgetMillions === state.rosterBudget);
+  const R = VALUE.roster;
+  const spots = Object.entries(R.lineup.slots).map(([p, n]) => `${n} ${p}`).join(', ');
+  return el('div', { className: 'rankings' }, [
+    el('h2', { className: 'pos-title', text: 'Production per cap dollar' }),
+    el('p', { className: 'fine', text: 'Every ranked player, by what his production is worth minus what he costs. Production is the 0-100 score from the Production tab. It is worth the cap hit found at the same percentile of pay at his position: the 90th-percentile producer is worth what the 90th-percentile-paid player costs. Tap a player.' }),
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, ['All', ...POSITION_GROUPS].map((g) => chip(g, state.valuePos === g, () => { state.valuePos = g; draw(); }))),
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Order' } }, [
+      chip('Best value', state.valueOrder === 'best', () => { state.valueOrder = 'best'; draw(); }),
+      chip('Worst value', state.valueOrder === 'worst', () => { state.valueOrder = 'worst'; draw(); }),
+    ]),
+    list.length
+      ? el('ol', { className: 'players' }, list.map((p, i) => valueRow(p.id, `v-${p.id}`, p.name, valueMeta(p, true), dollars(p.surplus), String(i + 1))))
+      : el('p', { className: 'fine', text: 'No players yet: this needs contracts with this season\'s cap hits.' }),
+    el('h2', { className: 'pos-title', text: 'Best roster under a budget' }),
+    el('p', { className: 'fine', text: `The ${Object.values(R.lineup.slots).reduce((a, b) => a + b, 0)} starters (${spots}) with the highest total production score whose cap hits fit the budget. The budgets are this page's game, not an NFL rule; linemen and specialists aren't ranked, so they have no spot.` }),
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Budget' } }, R.budgetsMillions.map((b) => chip(`$${b}M`, state.rosterBudget === b, () => { state.rosterBudget = b; draw(); }))),
+    roster ? el('ol', { className: 'players' }, [
+      ...roster.players.map((p, i) => valueRow(p.id, `r-${i}`, p.name, `${p.team} · cap hit ${money(p.capMillions, 2)}`, String(Math.round(p.points)), p.slot)),
+      el('li', { className: 'total' }, [
+        el('span', { text: `Total: cap ${money(roster.capMillions, 2)} of $${roster.budgetMillions}M` }),
+        el('span', { className: 'num', text: `avg ${(roster.points / Math.max(1, roster.players.length)).toFixed(0)}` }),
+      ]),
+    ]) : el('p', { className: 'fine', text: 'No roster fits yet.' }),
+  ]);
+}
 
 /** A row that opens the player's page when he has one. */
 function valueRow(id: string, key: string, name: string, meta: string, figure: string, lead?: string): HTMLElement {
@@ -513,7 +553,7 @@ function fantasyView(): HTMLElement {
   const F = VALUE.fantasy;
   const value = data.value;
   const positions = ['All', ...Object.keys(F.minPerGame)];
-  const list = value.fantasy.filter((f) => state.fantasyPos === 'All' || f.pos === state.fantasyPos).slice(0, F.listSize);
+  const list = value.fantasy.filter((f) => state.fantasyPos === 'All' || f.pos === state.fantasyPos).slice(0, VALUE.listSize);
   const lineup = value.lineups.find((l) => l.scope === state.lineupScope && l.budgetMillions === state.budget);
   const week = value.lineups.find((l) => l.scope === 'week')?.week;
   const slots = `${Object.entries(F.lineup.slots).map(([p, n]) => `${n} ${p}`).join(', ')}, 1 ${F.lineup.flexLabel}`;
@@ -541,29 +581,29 @@ function fantasyView(): HTMLElement {
   ]);
 }
 
-function officePlayers(title: string, note: string, list: FrontOfficePlayer[], key: string): HTMLElement | null {
+function officePlayers(title: string, note: string, list: PlayerValue[], key: string): HTMLElement | null {
   if (!list.length) return null;
   return el('div', { className: 'shop' }, [
     el('h4', { text: title }),
     el('p', { className: 'fine', text: note }),
-    el('ul', { className: 'players' }, list.map((p, i) => valueRow(p.id, `${key}-${i}`, p.name, `${p.group} · cap hit ${money(p.capMillions, 2)} · produces ${Math.round(p.production)}, pay predicts ${Math.round(p.expected)}`, signed(p.surplus, 0)))),
+    el('ul', { className: 'players' }, list.map((p, i) => valueRow(p.id, `${key}-${i}`, p.name, valueMeta(p, false), dollars(p.surplus)))),
   ]);
 }
 
-function officeCard(f: FrontOffice, i: number): HTMLElement {
+function officeCard(f: FrontOffice): HTMLElement {
   const open = state.office === f.team;
   return el('li', { className: `player${open ? ' open' : ''}` }, [
     el('button', { className: 'player-head', attrs: { 'aria-expanded': String(open), 'data-office': f.team }, onClick: () => { state.office = open ? null : f.team; draw(); document.querySelector<HTMLElement>(`[data-office="${f.team}"]`)?.focus(); } }, [
-      el('span', { className: 'p-rank num', text: f.rank === null ? '-' : String(i + 1) }),
+      el('span', { className: 'p-rank num', text: f.rank === null ? '-' : String(f.rank) }),
       el('span', { className: 'p-main' }, [
         el('span', { className: 'p-name', text: `${f.team} ${teams.get(f.team)?.name ?? ''}` }),
-        el('span', { className: 'p-meta', text: `${signed(f.surplus, 1)} vs pay · ${f.players} ranked players · ${money(f.capMillions)} of cap` }),
+        el('span', { className: 'p-meta', text: `${dollars(f.surplus)} surplus · ${f.players} ranked players costing ${money(f.capMillions)}` }),
       ]),
       el('span', { className: `p-score num ${band(f.grade ?? 50)}`, text: f.grade === null ? '-' : String(f.grade) }),
     ]),
     open ? el('div', { className: 'player-body' }, [
-      officePlayers('Bargains', 'Producing well above what their pay predicts.', f.bargains, `b-${f.team}`),
-      officePlayers('Overpays', 'Paid in the top half at the position, producing below what that pay predicts.', f.overpays, `o-${f.team}`),
+      officePlayers('Bargains', 'Production worth the most over their cap hit.', f.bargains, `b-${f.team}`),
+      officePlayers('Overpays', 'Cap hit the most over what their production is worth.', f.overpays, `o-${f.team}`),
       f.idle.length ? el('div', { className: 'shop' }, [
         el('h4', { text: 'Paid, not ranked' }),
         el('p', { className: 'fine', text: `Cap hits of ${money(VALUE.frontOffice.idleCapMillions, 0)} or more on players without enough play to be ranked (hurt, benched or new). Listed, not graded.` }),
@@ -577,9 +617,9 @@ function officeCard(f: FrontOffice, i: number): HTMLElement {
 function officesView(): HTMLElement {
   const list = data.value.frontOffices;
   return el('div', { className: 'rankings' }, [
-    el('h2', { className: 'pos-title', text: 'Front offices' }),
-    el('p', { className: 'fine', text: 'Which teams get the most production for their cap dollars. Each ranked player is compared with what players paid like him at his position usually produce; the team score is that gap averaged over its players, weighted by cap hit. Grade 50 = league average. Tap a team.' }),
-    list.length ? el('ol', { className: 'players' }, list.map((f, i) => officeCard(f, i))) : el('p', { className: 'fine', text: 'No grades yet: this needs contracts with this season\'s cap hits.' }),
+    el('h2', { className: 'pos-title', text: 'Cap value by team' }),
+    el('p', { className: 'fine', text: 'Which teams get the most production for their cap dollars: each ranked player\'s surplus (what his production is worth minus his cap hit, as on the Value tab) added up by team. Grade 50 = league average. Tap a team.' }),
+    list.length ? el('ol', { className: 'players' }, list.map((f) => officeCard(f))) : el('p', { className: 'fine', text: 'No grades yet: this needs contracts with this season\'s cap hits.' }),
     el('p', { className: 'fine', text: 'Left out: offensive linemen and specialists (not ranked individually), players without enough play to rank, and dead money (cap charges for players no longer on the team), which the open data doesn\'t have. A traded player counts for his current team.' }),
   ]);
 }
@@ -587,10 +627,20 @@ function officesView(): HTMLElement {
 function valueView(): HTMLElement {
   return el('section', { className: 'rankings' }, [
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Value view' } }, [
+      chip('Production per $', state.valueView === 'production', () => { state.valueView = 'production'; draw(); }),
       chip('Fantasy per $', state.valueView === 'fantasy', () => { state.valueView = 'fantasy'; draw(); }),
-      chip('Front offices', state.valueView === 'offices', () => { state.valueView = 'offices'; draw(); }),
     ]),
-    state.valueView === 'fantasy' ? fantasyView() : officesView(),
+    state.valueView === 'production' ? productionView() : fantasyView(),
+  ]);
+}
+
+function officeView(): HTMLElement {
+  return el('section', { className: 'rankings' }, [
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Front office view' } }, [
+      chip('Cap value', state.officeView === 'cap', () => { state.officeView = 'cap'; draw(); }, 'cap'),
+      chip('Team grades and trades', state.officeView === 'board', () => { state.officeView = 'board'; draw(); }, 'board'),
+    ]),
+    state.officeView === 'cap' ? officesView() : leagueView(),
   ]);
 }
 
@@ -608,10 +658,10 @@ function footer(): HTMLElement {
     el('h3', { text: 'Method' }),
     el('p', { text: `Unit grades: EPA per play for pass and rush, offense and defense, adjusted for opponents with a ridge regression (each team's effect is shrunk toward average as if it had ${ADJUST.lambdaPlays.pass} extra average plays, so a half season of noise doesn't dominate), garbage time removed. Grade = normal percentile of the adjusted value among the 32 teams.` }),
     el('p', { text: `Verdict: playoff odds from ${PLAYOFF_SIM.simulations.toLocaleString('en-US')} simulated finishes (team strength blends adjusted EPA with point differential; standings ties broken at random, not by NFL tiebreakers). Odds ${pct(VERDICT.contenderOdds)}+ buy for a unit graded under ${VERDICT.holeGrade}; ${pct(VERDICT.sellerOdds)} or less sell; in between, the schedule left decides.` }),
-    el('p', { text: 'Player scores: percentile within the position of a weighted mix of stat percentiles, among players over a per-game volume minimum. Offensive linemen are graded by team instead (Players, then OL); specialists are not ranked. Open data has no good per-player stat for either.' }),
+    el('p', { text: 'Player scores: percentile within the position of a weighted mix of stat percentiles, among players over a per-game volume minimum. Offensive linemen are graded by team instead (Production, then OL); specialists are not ranked. Open data has no good per-player stat for either.' }),
     el('p', { text: 'Offensive line: pass protection = QB pressures (PFR) per dropback; run blocking = rushing yards before contact per carry (PFR). When a buyer\'s weakest unit is pass O or rush O, it shops for the weaker half: the line, or the pass catchers (EPA per non-sack attempt) or backs (yards after contact per carry).' }),
-    el('p', { text: 'Player pages (Players, then search, or "Game log and contract" on a ranked player): one line per game from the nflverse weekly stats, for every quarterback, back, receiver, tight end and defender with a stat this season. Snap% is his share of the team\'s offense or defense snaps. PPR = fantasy points with a point per catch. Contract years show base salary, cap hit and cash paid.' }),
-    el('p', { text: `Value: cap hit is what a player counts against his team's cap this season (from the contract's yearly rows). Fantasy per $ = PPR points per $1M of cap hit. The best lineup is found exactly, with cap hits rounded up to the nearest $${VALUE.fantasy.budgetStepMillions}M. Front offices: production percentile minus the production a straight-line, league-wide fit predicts from the player's cap-hit percentile at his position, averaged by cap hit. It rewards cheap producers (often rookie deals) and penalizes expensive players who aren't producing; it ignores dead money, linemen and specialists.` }),
+    el('p', { text: 'Player pages (Production, then search, or "Game log and contract" on a ranked player): one line per game from the nflverse weekly stats, for every quarterback, back, receiver, tight end and defender with a stat this season. Snap% is his share of the team\'s offense or defense snaps. PPR = fantasy points with a point per catch. Contract years show base salary, cap hit and cash paid.' }),
+    el('p', { text: `Value: cap hit is what a player counts against his team's cap this season (from the contract's yearly rows). Production per $: a ranked player's production score is worth the cap hit at the same percentile of pay at his position; surplus is that worth minus his own cap hit. Cheap producers (often rookie deals) come out best, expensive players who aren't producing worst, and a star paid like a star about even. Cap value by team (Front office) adds the surplus up by team; it ignores dead money, linemen, specialists and players without enough play to rank, and teams that spend more on ranked players tend to score lower. Fantasy per $ = PPR points per $1M of cap hit. Best rosters and lineups are found exactly, with cap hits rounded up to the nearest $${VALUE.fantasy.budgetStepMillions}M; the weekly lineup uses the latest week with every game played.` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
@@ -624,10 +674,10 @@ function footer(): HTMLElement {
 function draw(): void {
   const team = state.team ? teams.get(state.team) : undefined;
   const profile = state.player ? profiles.get(state.player) : undefined;
-  const tabs = (['league', 'players', 'value'] as const).map((v) => el('button', {
+  const tabs = (['value', 'players', 'office'] as const).map((v) => el('button', {
     className: `tab${state.view === v ? ' on' : ''}`,
-    text: v === 'league' ? 'League' : v === 'players' ? 'Players' : 'Value',
-    attrs: { 'aria-pressed': String(state.view === v) },
+    text: v === 'value' ? 'Value' : v === 'players' ? 'Production' : 'Front office',
+    attrs: { 'aria-pressed': String(state.view === v), 'data-view': v },
     onClick: () => { state.view = v; draw(); },
   }));
   render(el('div', { className: 'shell' }, [
@@ -639,7 +689,7 @@ function draw(): void {
       el('nav', { className: 'tabs' }, tabs),
     ]),
     data.sample ? el('p', { className: 'banner', text: 'Sample data (weeks 1-2 of 2026): the nightly refresh has not run yet.' }) : null,
-    el('main', {}, [state.view === 'league' ? leagueView() : state.view === 'players' ? playersView() : valueView(), footer()]),
+    el('main', {}, [state.view === 'value' ? valueView() : state.view === 'players' ? playersView() : officeView(), footer()]),
     team ? teamSheet(team) : null,
     profile ? playerSheet(profile) : null,
   ]));

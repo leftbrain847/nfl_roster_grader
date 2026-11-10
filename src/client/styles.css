@@ -227,5 +227,5 @@ button:focus-visible, tr:focus-visible { outline: 3px solid var(--accent); outli
 /* value */
 .v-figure { flex: none; font-weight: 800; min-width: 3.2em; text-align: right; }
 .total { display: flex; justify-content: space-between; gap: 8px; padding: 10px 12px; font-weight: 700; }
-h4 { margin: 0; font-size: 14px; font-weight: 700; }
+.shop h4 { margin: 0; font-size: 14px; font-weight: 700; }
 .tab { padding-inline: 12px; }

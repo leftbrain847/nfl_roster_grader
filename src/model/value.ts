@@ -1,14 +1,14 @@
 /**
  * Value: what teams get for their cap dollars.
  * - Fantasy value: PPR points per $1M of this season's cap hit, and the best lineup that fits under a budget.
- * - Front offices: for every ranked player, production percentile minus what players paid that much usually
- *   produce ("surplus"); a team's score is the cap-weighted average of its players' surplus.
+ * - Front offices: for every ranked player, what his production is worth at his position minus his cap hit
+ *   ("surplus", in dollars); a team's score is the sum over its players.
  * Cap hits come from the contract's row for this season. Dead money isn't in the data, so it isn't counted.
  */
-import { DEPTH_TO_GROUP, GAME_LOG, GRADE, VALUE, type PositionGroup, type ValueConfig } from './config.ts';
-import { mean, normalCdf, percentiles, ranks, round, sd } from './stats.ts';
+import { DEPTH_TO_GROUP, GAME_LOG, GRADE, VALUE, type LineupRules, type PositionGroup, type ValueConfig } from './config.ts';
+import { mean, normalCdf, ranks, round, sd } from './stats.ts';
 import type {
-  FantasyValue, FrontOffice, FrontOfficePlayer, Lineup, LineupPlayer, ModelInputs, PlayerProfile, PlayerResult, ValueOutput,
+  FantasyValue, FrontOffice, Lineup, LineupPlayer, ModelInputs, PlayerProfile, PlayerResult, PlayerValue, ValueOutput,
 } from './types.ts';
 
 /** This season's cap hit per player, millions. */
@@ -41,7 +41,7 @@ export function fantasyValues(profiles: PlayerProfile[], caps: Map<string, numbe
   return out.sort((a, b) => b.perMillion - a.perMillion || a.id.localeCompare(b.id));
 }
 
-interface Candidate { id: string; name: string; team: string; pos: string; points: number; cap: number; cost: number }
+export interface Candidate { id: string; name: string; team: string; pos: string; points: number; cap: number; cost: number }
 
 /** Best `count` players of one position at every budget: points[k][b] = most points from exactly k players costing <= b units. */
 function knapsack(items: Candidate[], maxCount: number, budget: number): { points: Float64Array[]; pick: (k: number, b: number) => Candidate[] } {
@@ -78,23 +78,23 @@ function knapsack(items: Candidate[], maxCount: number, budget: number): { point
  * The lineup with the most points whose cap hits fit each budget. Exact: a knapsack per position, then the budget
  * is split across positions, once for each position the flex spot could go to.
  */
-export function bestLineups(cands: Candidate[], scope: Lineup['scope'], week: number | null, cfg: ValueConfig = VALUE): Lineup[] {
-  const L = cfg.fantasy.lineup;
-  const step = cfg.fantasy.budgetStepMillions;
-  const B = Math.round(Math.max(...cfg.fantasy.budgetsMillions) / step);
+export function bestLineups(cands: Candidate[], scope: Lineup['scope'], week: number | null, rules: LineupRules = VALUE.fantasy): Lineup[] {
+  const L = rules.lineup;
+  const step = rules.budgetStepMillions;
+  const B = Math.floor(Math.max(...rules.budgetsMillions) / step + 1e-9);
   const positions = Object.keys(L.slots);
   const tables = new Map(positions.map((pos) => {
     const items = cands
       .filter((c) => c.pos === pos && c.points > 0)
-      .sort((a, b) => b.points - a.points || a.cost - b.cost || a.id.localeCompare(b.id))
-      .slice(0, cfg.fantasy.candidatesPerPosition);
+      .sort((a, b) => b.points - a.points || a.cost - b.cost || a.id.localeCompare(b.id));
     return [pos, knapsack(items, (L.slots[pos] ?? 0) + (L.flexFrom.includes(pos) ? 1 : 0), B)] as const;
   }));
   const out: Lineup[] = [];
-  for (const budgetMillions of cfg.fantasy.budgetsMillions) {
-    const budget = Math.round(budgetMillions / step);
-    let best: { points: number; picks: Candidate[]; flex: string } | null = null;
-    for (const flex of L.flexFrom) {
+  for (const budgetMillions of rules.budgetsMillions) {
+    const budget = Math.floor(budgetMillions / step + 1e-9);
+    let best: { points: number; picks: Candidate[] } | null = null;
+    // no flex spot: one pass with nothing extra
+    for (const flex of L.flexFrom.length ? L.flexFrom : [null]) {
       // split the budget across positions one at a time, remembering how much each one got
       let total = new Float64Array(budget + 1);
       const spent: Int32Array[] = [];
@@ -125,7 +125,7 @@ export function bestLineups(cands: Candidate[], scope: Lineup['scope'], week: nu
         picks.push(...(tables.get(pos)?.pick((L.slots[pos] ?? 0) + (pos === flex ? 1 : 0), x) ?? []));
         b -= x;
       }
-      best = { points: pts, picks, flex };
+      best = { points: pts, picks };
     }
     if (!best) continue;
     const players: LineupPlayer[] = [];
@@ -147,6 +147,14 @@ export function bestLineups(cands: Candidate[], scope: Lineup['scope'], week: nu
   return out;
 }
 
+/** The best 17 the money can buy: lineup spots by position group, scored by production instead of fantasy points. */
+export function rosterCandidates(values: PlayerValue[], cfg: ValueConfig = VALUE): Candidate[] {
+  return values.map((v) => ({
+    id: v.id, name: v.name, team: v.team, pos: v.group, points: v.production, cap: v.capMillions,
+    cost: Math.ceil(v.capMillions / cfg.roster.budgetStepMillions - 1e-9),
+  }));
+}
+
 function lineupCandidates(profiles: PlayerProfile[], caps: Map<string, number>, week: number | null, cfg: ValueConfig): Candidate[] {
   const step = cfg.fantasy.budgetStepMillions;
   const out: Candidate[] = [];
@@ -162,40 +170,46 @@ function lineupCandidates(profiles: PlayerProfile[], caps: Map<string, number>, 
   return out;
 }
 
-/** Least-squares line y = intercept + slope * x; a flat line at the mean when x doesn't vary. */
-export function linearFit(xs: number[], ys: number[]): { intercept: number; slope: number } {
-  const mx = mean(xs);
-  const my = mean(ys);
-  const sxx = xs.reduce((s, x) => s + (x - mx) ** 2, 0);
-  const slope = sxx > 0 ? xs.reduce((s, x, i) => s + (x - mx) * ((ys[i] as number) - my), 0) / sxx : 0;
-  return { intercept: my - slope * mx, slope };
+/** The value at fraction q (0-1) of an ascending list, interpolating between neighbours. */
+export function quantile(sorted: readonly number[], q: number): number {
+  if (!sorted.length) return 0;
+  const x = Math.min(1, Math.max(0, q)) * (sorted.length - 1);
+  const lo = Math.floor(x);
+  const hi = Math.min(sorted.length - 1, lo + 1);
+  return (sorted[lo] as number) + ((sorted[hi] as number) - (sorted[lo] as number)) * (x - lo);
 }
 
-export function frontOffices(players: PlayerResult[], caps: Map<string, number>, inp: ModelInputs, teams: string[], cfg: ValueConfig = VALUE): FrontOffice[] {
-  const F = cfg.frontOffice;
-  const priced = players.filter((p) => caps.has(p.id));
-  const rows = new Map<string, FrontOfficePlayer[]>();
+/**
+ * Player value, in dollars. A ranked player's production is "worth" the cap hit found at the same percentile
+ * of pay at his position: the 90th-percentile producer is worth what the 90th-percentile-paid player costs.
+ * Surplus = worth - cap hit.
+ */
+export function playerValues(players: PlayerResult[], caps: Map<string, number>): PlayerValue[] {
+  const out: PlayerValue[] = [];
   const groups = new Map<PositionGroup, PlayerResult[]>();
-  for (const p of priced) groups.set(p.group, [...(groups.get(p.group) ?? []), p]);
-  const all: { p: PlayerResult; group: PositionGroup; capPct: number }[] = [];
+  for (const p of players) if (caps.has(p.id)) groups.set(p.group, [...(groups.get(p.group) ?? []), p]);
   for (const [group, list] of groups) {
-    const capPct = percentiles(list.map((p) => caps.get(p.id) as number));
-    list.forEach((p, i) => all.push({ p, group, capPct: capPct[i] as number }));
+    const pay = list.map((p) => caps.get(p.id) as number).sort((a, b) => a - b);
+    for (const p of list) {
+      const cap = caps.get(p.id) as number;
+      const worth = quantile(pay, p.scores.production / 100);
+      out.push({
+        id: p.id, name: p.name, team: p.team, group, production: p.scores.production,
+        capMillions: round(cap, 2), worthMillions: round(worth, 2), surplus: round(worth - cap, 2),
+      });
+    }
   }
-  // what a player paid at each level usually produces: a straight-line fit of production on pay, league-wide
-  const fit = linearFit(all.map((x) => x.capPct), all.map((x) => x.p.scores.production));
-  for (const { p, group, capPct } of all) {
-    const expected = fit.intercept + fit.slope * capPct;
-    rows.set(p.team, [...(rows.get(p.team) ?? []), {
-      id: p.id, name: p.name, group, production: p.scores.production, capPct: round(capPct, 1), expected: round(expected, 1),
-      capMillions: round(caps.get(p.id) as number, 2), surplus: round(p.scores.production - expected, 1),
-    }]);
-  }
-  const ranked = new Set(players.map((p) => p.id));
+  return out.sort((a, b) => b.surplus - a.surplus || a.id.localeCompare(b.id));
+}
+
+/** Team scores: the sum of each team's players' surplus, graded across teams. */
+export function frontOffices(values: PlayerValue[], rankedIds: Set<string>, caps: Map<string, number>, inp: ModelInputs, teams: string[], cfg: ValueConfig = VALUE): FrontOffice[] {
+  const F = cfg.frontOffice;
+  const rows = new Map<string, PlayerValue[]>();
+  for (const v of values) rows.set(v.team, [...(rows.get(v.team) ?? []), v]);
+  const ranked = rankedIds;
   const raw = teams.map((team) => {
     const mine = rows.get(team) ?? [];
-    const cap = mine.reduce((s, p) => s + p.capMillions, 0);
-    const surplus = cap > 0 ? mine.reduce((s, p) => s + p.capMillions * p.surplus, 0) / cap : 0;
     const bySurplus = [...mine].sort((a, b) => b.surplus - a.surplus || a.id.localeCompare(b.id));
     const idle = inp.roster
       .filter((r) => r.team === team && !ranked.has(r.gsis) && DEPTH_TO_GROUP[r.depth] && (caps.get(r.gsis) ?? 0) >= F.idleCapMillions)
@@ -203,9 +217,11 @@ export function frontOffices(players: PlayerResult[], caps: Map<string, number>,
       .sort((a, b) => b.capMillions - a.capMillions || a.id.localeCompare(b.id))
       .slice(0, F.listSize);
     return {
-      team, surplus, cap, count: mine.length,
-      bargains: bySurplus.filter((p) => p.surplus > 0 && p.production >= F.bargainMinProduction).slice(0, F.listSize),
-      overpays: bySurplus.filter((p) => p.surplus < 0 && p.capPct >= F.overpayMinCapPct).reverse().slice(0, F.listSize),
+      team, count: mine.length,
+      surplus: mine.reduce((s, p) => s + p.surplus, 0),
+      cap: mine.reduce((s, p) => s + p.capMillions, 0),
+      bargains: bySurplus.filter((p) => p.surplus > 0).slice(0, F.listSize),
+      overpays: bySurplus.filter((p) => p.surplus < 0).reverse().slice(0, F.listSize),
       idle,
     };
   });
@@ -228,14 +244,24 @@ export function frontOffices(players: PlayerResult[], caps: Map<string, number>,
     .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.team.localeCompare(b.team));
 }
 
-export function buildValue(inp: ModelInputs, profiles: PlayerProfile[], players: PlayerResult[], teams: string[], teamGames: Record<string, number>, throughWeek: number, cfg: ValueConfig = VALUE): ValueOutput {
+/** The latest week in which every scheduled game has a score: a week in progress would give a lopsided "best lineup". */
+export function lastFullWeek(inp: ModelInputs): number | null {
+  const weeks = [...new Set(inp.games.map((g) => g.week))].sort((a, b) => b - a);
+  return weeks.find((w) => inp.games.filter((g) => g.week === w).every((g) => g.homeScore !== null)) ?? null;
+}
+
+export function buildValue(inp: ModelInputs, profiles: PlayerProfile[], players: PlayerResult[], teams: string[], teamGames: Record<string, number>, cfg: ValueConfig = VALUE): ValueOutput {
   const caps = capHits(inp);
+  const week = lastFullWeek(inp);
+  const values = playerValues(players, caps);
   return {
     fantasy: fantasyValues(profiles, caps, teamGames, cfg),
     lineups: caps.size ? [
-      ...bestLineups(lineupCandidates(profiles, caps, null, cfg), 'season', null, cfg),
-      ...bestLineups(lineupCandidates(profiles, caps, throughWeek, cfg), 'week', throughWeek, cfg),
+      ...bestLineups(lineupCandidates(profiles, caps, null, cfg), 'season', null, cfg.fantasy),
+      ...(week === null ? [] : bestLineups(lineupCandidates(profiles, caps, week, cfg), 'week', week, cfg.fantasy)),
     ] : [],
-    frontOffices: caps.size ? frontOffices(players, caps, inp, teams, cfg) : [],
+    players: values,
+    rosters: bestLineups(rosterCandidates(values, cfg), 'season', null, cfg.roster),
+    frontOffices: caps.size ? frontOffices(values, new Set(players.map((p) => p.id)), caps, inp, teams, cfg) : [],
   };
 }

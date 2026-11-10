@@ -293,7 +293,8 @@ export interface FantasyValue {
 
 export interface LineupPlayer { slot: string; id: string; name: string; team: string; pos: string; points: number; capMillions: number }
 
-/** The highest-scoring lineup whose cap hits fit a budget, over the season or in one week. */
+/** The highest-scoring lineup whose cap hits fit a budget, over the season or in one week. `points` are fantasy
+ * points, or production scores for the best roster. */
 export interface Lineup {
   budgetMillions: number;
   scope: 'season' | 'week';
@@ -303,18 +304,18 @@ export interface Lineup {
   players: LineupPlayer[];
 }
 
-export interface FrontOfficePlayer {
+/** A ranked player's production against his cap hit. */
+export interface PlayerValue {
   id: string;
   name: string;
+  team: string;
   group: PositionGroup;
   /** Production percentile at the position. */
   production: number;
-  /** Cap-hit percentile among ranked players at the position (100 = the most expensive). */
-  capPct: number;
   capMillions: number;
-  /** The production players at that pay level usually give (league-wide straight-line fit). */
-  expected: number;
-  /** production - expected: positive = produces more than his pay predicts. */
+  /** What his production is worth: the cap hit at the same percentile of pay at his position, millions. */
+  worthMillions: number;
+  /** worthMillions - capMillions: positive = produces more than he costs. */
   surplus: number;
 }
 
@@ -323,18 +324,22 @@ export interface FrontOffice {
   /** 0-100 among the 32 teams; null with too few priced players. */
   grade: number | null;
   rank: number | null;
-  /** Cap-weighted average surplus of the team's ranked players. */
+  /** Sum of the team's ranked players' surplus, millions. */
   surplus: number;
   /** Cap dollars the grade covers (ranked players only). */
   capMillions: number;
   players: number;
-  bargains: FrontOfficePlayer[];
-  overpays: FrontOfficePlayer[];
+  bargains: PlayerValue[];
+  overpays: PlayerValue[];
   /** Big cap hits on players without the volume to be ranked (hurt, benched): listed, not graded. */
   idle: { id: string; name: string; pos: string; capMillions: number }[];
 }
 
 export interface ValueOutput {
+  /** Every ranked player with a known cap hit, best surplus first. */
+  players: PlayerValue[];
+  /** Best rosters by production score under each budget. */
+  rosters: Lineup[];
   fantasy: FantasyValue[];
   lineups: Lineup[];
   frontOffices: FrontOffice[];
