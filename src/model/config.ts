@@ -603,8 +603,8 @@ export const MOVES: MovesConfig = {
   // TRD, TRT and TRC show up a handful of times a season with no documented meaning, so they mark no trade
   status: { active: ['ACT', 'INA'], reserve: 'RES', practice: 'DEV', released: 'CUT', retired: 'RET', traded: [] },
   labels: {
-    trade: 'Trade', draft: 'Drafted', signed: 'Signed', released: 'Released', reserve: 'Reserve', activated: 'Activated',
-    promoted: 'Promoted', practice: 'Practice squad', retired: 'Retired', moved: 'Changed teams',
+    trade: 'Trade', moved: 'Changed teams', draft: 'Drafted', signed: 'Signed', released: 'Released', reserve: 'Reserve',
+    activated: 'Activated', promoted: 'Promoted', practice: 'Practice squad', retired: 'Retired',
   },
 };
 

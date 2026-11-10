@@ -6,7 +6,7 @@
 import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
-  type LineKey, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
+  type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
@@ -37,6 +37,7 @@ const state = {
   officeView: 'cap' as 'cap' | 'board',
   moveTeam: 'all',
   moveGroup: 'all',
+  moveKind: 'all',
   moveShown: MOVES_PAGE,
   fantasyPos: 'All',
   budget: VALUE.fantasy.budgetsMillions[0] ?? 0,
@@ -677,7 +678,8 @@ function movesView(): HTMLElement {
   const teamCodes = [...new Set(moves.flatMap((m) => [m.team, m.from ?? '']).filter(Boolean))].sort();
   const groups = [...MOVES.positionGroups, ...(moves.some((m) => m.group === MOVES.other) ? [MOVES.other] : [])];
   const list = moves.filter((m) => (state.moveTeam === 'all' || m.team === state.moveTeam || m.from === state.moveTeam)
-    && (state.moveGroup === 'all' || m.group === state.moveGroup));
+    && (state.moveGroup === 'all' || m.group === state.moveGroup)
+    && (state.moveKind === 'all' || m.kind === state.moveKind));
   const shown = list.slice(0, state.moveShown);
   let lastWhen = '';
   const items: HTMLElement[] = [];
@@ -704,6 +706,7 @@ function movesView(): HTMLElement {
     el('p', { className: 'fine', text: 'Every trade, draft pick and roster move this season, newest first. Tap a player for his game log and contract (players with stats this season).' }),
     el('div', { className: 'picks' }, [
       selectBox('Team', state.moveTeam, [['all', 'All teams'], ...teamCodes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()])], (v) => { state.moveTeam = v; state.moveShown = MOVES_PAGE; draw(); }),
+      selectBox('Type', state.moveKind, [['all', 'All types'], ...(Object.keys(MOVES.labels) as MoveKind[]).filter((k) => moves.some((m) => m.kind === k)).map((k): [string, string] => [k, MOVES.labels[k]])], (v) => { state.moveKind = v; state.moveShown = MOVES_PAGE; draw(); }),
       selectBox('Position', state.moveGroup, [['all', 'All positions'], ...groups.map((g): [string, string] => [g, g])], (v) => { state.moveGroup = v; state.moveShown = MOVES_PAGE; draw(); }),
     ]),
     el('p', { className: 'fine', text: `${list.length} moves` }),
