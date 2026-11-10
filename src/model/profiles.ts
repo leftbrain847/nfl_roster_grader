@@ -41,6 +41,8 @@ export function buildProfiles(inp: ModelInputs, weeksPlayed: number, cfg: GameLo
     for (const w of sorted) {
       // a player whose position group changed mid-season keeps the columns of his latest one
       if (w.kind !== last.kind) continue;
+      // a saved copy from before the columns changed can't be shown under today's labels
+      if (w.v.length !== cfg.columns[w.kind].length) continue;
       const g = games.get(w.g);
       const mine = pfr ? mySnaps.get(`${pfr}|${w.g}`) : undefined;
       const team = teamSnaps.get(`${w.t}|${w.g}`);

@@ -473,6 +473,70 @@ export const GAME_LOG: GameLogConfig = {
   searchResults: 12,
 };
 
+/** Bump when GAME_LOG.columns changes order or meaning: a saved copy of the weekly stats from before is then dropped
+ * instead of being shown under the new labels. */
+export const GAME_LOG_VERSION = 1;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Value: production per cap dollar
+// ---------------------------------------------------------------------------------------------------------------
+
+/** A best-lineup search: who starts, and the budgets to fit. */
+export interface LineupRules {
+  lineup: {
+    /** Starters per position. */
+    slots: Record<string, number>;
+    /** One more starter from any of these (none = no flex spot). */
+    flexFrom: string[];
+    flexLabel: string;
+  };
+  /** Total cap hit the lineup must fit under, millions (rounded down to the step). A game rule, not an NFL number. */
+  budgetsMillions: number[];
+  /** Cap hits are rounded up to this for the search, millions. */
+  budgetStepMillions: number;
+}
+
+export interface ValueConfig {
+  /** Players listed per position in the value lists. */
+  listSize: number;
+  /** The best roster by production score: spots by position group (no linemen or specialists: they aren't ranked). */
+  roster: LineupRules;
+  fantasy: LineupRules & {
+    /** The game-log column that holds fantasy points. */
+    pointsColumn: string;
+    /** To be listed: this many points per game, by nflverse position. Positions not listed aren't fantasy positions. */
+    minPerGame: Record<string, number>;
+    /** ...in at least this share of his team's games. */
+    minGameShare: number;
+  };
+  frontOffice: {
+    /** Bargains, overpays and idle players listed per team. */
+    listSize: number;
+    /** "Paid but not ranked": a cap hit at least this big, millions, on a player without the volume to be ranked. */
+    idleCapMillions: number;
+    /** A team needs this many ranked players with a known cap hit to get a grade. */
+    minPlayers: number;
+  };
+}
+
+export const VALUE: ValueConfig = {
+  listSize: 25,
+  roster: {
+    lineup: { slots: { QB: 1, RB: 1, WR: 3, TE: 1, EDGE: 2, IDL: 2, LB: 2, CB: 3, S: 2 }, flexFrom: [], flexLabel: '' },
+    budgetsMillions: [30, 75, 150],
+    budgetStepMillions: 0.1,
+  },
+  fantasy: {
+    pointsColumn: 'PPR',
+    minPerGame: { QB: 12, RB: 8, WR: 8, TE: 6 },
+    minGameShare: 0.5,
+    lineup: { slots: { QB: 1, RB: 2, WR: 3, TE: 1 }, flexFrom: ['RB', 'WR', 'TE'], flexLabel: 'FLEX' },
+    budgetsMillions: [15, 30, 60],
+    budgetStepMillions: 0.1,
+  },
+  frontOffice: { listSize: 3, idleCapMillions: 8, minPlayers: 8 },
+};
+
 export interface BuyConfig {
   /** Targets listed per buyer. */
   targetsPerTeam: number;

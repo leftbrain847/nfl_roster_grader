@@ -9,6 +9,7 @@ import { gradeUnits, weakestUnit } from './grades.ts';
 import { divisionOf, records, recordText, scheduleLeft, simulatePlayoffs, strengths } from './playoffs.ts';
 import { rankPlayers } from './players.ts';
 import { buildProfiles } from './profiles.ts';
+import { buildValue } from './value.ts';
 import { assertRatingsAllowed } from './ratings.ts';
 import { round } from './stats.ts';
 import { decideVerdict } from './verdict.ts';
@@ -120,6 +121,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     if (t.verdict === 'buy' && t.need?.line) t.lineTargets = lineTargets(t.need.line, t.team, sellers, starters, lines, contracts, BUY.statuses);
   }
 
+  const profiles = buildProfiles(inp, throughWeek);
   const modes: RankingMode[] = ratingsCfg.enabled && inp.ratings ? ['production', 'ratings', 'composite'] : ['production'];
   return {
     schemaVersion: 1,
@@ -129,7 +131,8 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     dataAsOf: opts.dataAsOf,
     teams: results,
     players,
-    profiles: buildProfiles(inp, throughWeek),
+    profiles,
+    value: buildValue(inp, profiles, players, teams, played),
     sources: opts.sources,
     rankingModes: modes,
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,

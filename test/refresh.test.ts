@@ -84,6 +84,18 @@ describe('refresh pipeline (fixtures, no network)', () => {
     expect(out().players.some((p) => p.stats.some((x) => x.key === 'pressuresPer100'))).toBe(true);
   });
 
+  it('a saved copy of the weekly stats in an older layout is not reused', async () => {
+    await refresh({ root, today: TODAY, fetcher: fixtureFetcher() });
+    const p = join(root, snapshotPath('player_weeks'));
+    const snap = JSON.parse(readFileSync(p, 'utf8'));
+    expect(snap.version).toBe(1);
+    writeFileSync(p, JSON.stringify({ ...snap, version: 0 }));
+    const res = await refresh({ root, today: TODAY, fetcher: fixtureFetcher({ stats_player__: 'fail' }) });
+    expect(res.statuses.find((x) => x.id === 'player_weeks')?.state).toBe('missing');
+    expect(out().profiles).toEqual([]);
+    expect(out().teams).toHaveLength(32);
+  });
+
   it('a file with a renamed column is rejected, not read as zeros', async () => {
     await refresh({ root, today: TODAY, fetcher: fixtureFetcher() });
     const raw = readFileSync(join(RAW, 'pfr_advstats__advstats_week_def_2026.csv'), 'utf8').replace('def_pressures', 'def_pressures_total');
