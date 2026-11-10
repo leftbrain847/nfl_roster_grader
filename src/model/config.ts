@@ -608,6 +608,50 @@ export const MOVES: MovesConfig = {
   },
 };
 
+// ---------------------------------------------------------------------------------------------------------------
+// Move grades: each move judged from the team's side, against its needs before the move and the player's pay
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface MoveGradeConfig {
+  /**
+   * Score (0-100) = weighted mean of the parts available:
+   * - need: 100 - the team's grade, before the move, in the unit the player's position feeds (the worse one if two)
+   * - production: the player's production percentile at his position, this season to date
+   * - cost: his production's worth (Value tab) minus his contract's average per year, over the years left
+   * A move that sends a player away scores each part from the other side (100 - part).
+   */
+  weights: { need: number; production: number; cost: number };
+  /** Ranked position -> the units it feeds. */
+  units: Record<PositionGroup, UnitKey[]>;
+  /** Need comes from games before the move; with fewer than this many, from the season so far (and it says so). */
+  minGamesBefore: number;
+  /** Surplus per year x years left, millions, that moves the cost part halfway from 50 to 100 (tanh scale). */
+  costScaleMillions: number;
+  /** Years of the contract counted, this season included. */
+  maxYears: number;
+  /** Lowest score for each word, best first; below the last is the fallback. */
+  words: [number, string][];
+  fallbackWord: string;
+  /** Kinds graded as an addition / as a departure; others (reserve, activated, practice, retired) aren't decisions to grade. */
+  adds: MoveKind[];
+  departs: MoveKind[];
+}
+
+export const MOVE_GRADE: MoveGradeConfig = {
+  weights: { need: 0.35, production: 0.35, cost: 0.3 },
+  units: {
+    QB: ['passOffense'], WR: ['passOffense'], TE: ['passOffense'], RB: ['rushOffense'],
+    EDGE: ['passDefense'], IDL: ['passDefense', 'rushDefense'], LB: ['rushDefense', 'passDefense'], CB: ['passDefense'], S: ['passDefense'],
+  },
+  minGamesBefore: 2,
+  costScaleMillions: 10,
+  maxYears: 4,
+  words: [[80, 'Great'], [65, 'Good'], [45, 'Fair'], [30, 'Poor']],
+  fallbackWord: 'Bad',
+  adds: ['trade', 'moved', 'signed', 'draft', 'promoted'],
+  departs: ['released'],
+};
+
 export interface BuyConfig {
   /** Targets listed per buyer. */
   targetsPerTeam: number;
