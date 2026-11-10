@@ -12,7 +12,7 @@ describe('unit -> position mapping', () => {
     for (const u of UNIT_KEYS) {
       const n = UNIT_NEEDS[u];
       for (const need of [n.primary, ...(n.alternate ? [n.alternate] : [])]) {
-        expect(need.positions.length).toBeGreaterThan(0);
+        expect(need.positions.length > 0 || need.line !== undefined).toBe(true);
         for (const p of need.positions) {
           expect(POSITION_GROUPS).toContain(p);
           for (const k of Object.keys(POSITIONS[p].weights)) expect(STATS).toHaveProperty(k);

@@ -4,11 +4,11 @@
  */
 import data from '@roster-data';
 import {
-  ADJUST, PLAYOFF_SIM, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VERDICT,
-  type PositionGroup, type RankingMode, type UnitKey, type Verdict,
+  ADJUST, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VERDICT,
+  type LineKey, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
-import type { PlayerResult, TeamResult } from '../model/types.ts';
+import type { LineTarget, PlayerContract, PlayerResult, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 type SortKey = 'team' | 'verdict' | 'odds' | UnitKey;
@@ -19,7 +19,7 @@ const state = {
   sort: 'odds' as SortKey,
   desc: true,
   filter: 'all' as Verdict | 'all',
-  group: 'QB' as PositionGroup,
+  group: 'QB' as PositionGroup | 'OL',
   mode: 'production' as RankingMode,
   team: null as string | null,
   open: new Set<string>(),
@@ -159,9 +159,15 @@ function statLine(p: PlayerResult): HTMLElement {
   }));
 }
 
+function contractText(c: PlayerContract | null): string {
+  if (!c) return 'No contract on file';
+  const terms = `$${c.apyMillions.toFixed(1)}M/yr · ${(100 * c.capPct).toFixed(1)}% of cap at signing · thru ${c.lastYear}`;
+  return c.baseSalaryLeftMillions === null ? terms : `${terms} · base salary left ≈ $${c.baseSalaryLeftMillions.toFixed(2)}M`;
+}
+
 function playerCard(p: PlayerResult, opts: { showTeam: boolean; rank?: number }): HTMLElement {
   const open = state.open.has(p.id);
-  const contract = p.contract ? `$${p.contract.apyMillions.toFixed(1)}M/yr · ${(100 * p.contract.capPct).toFixed(1)}% of cap · thru ${p.contract.lastYear}` : 'No contract on file';
+  const contract = contractText(p.contract);
   const s = score(p);
   return el('li', { className: `player${open ? ' open' : ''}` }, [
     el('button', {
@@ -188,10 +194,45 @@ function playerCard(p: PlayerResult, opts: { showTeam: boolean; rank?: number })
   ]);
 }
 
+function lineBar(t: TeamResult, k: LineKey): HTMLElement {
+  const r = t.line[k];
+  const d = LINE[k];
+  return el('div', { className: 'unit' }, [
+    el('div', { className: 'unit-head' }, [
+      el('span', { className: 'unit-name', text: d.label }),
+      el('span', { className: 'unit-rank num', text: r ? `${ordinal(r.rank)} · ${r.grade}` : 'no data' }),
+    ]),
+    el('div', { className: 'bar', attrs: { role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(r?.grade ?? 0), 'aria-label': `${d.label} grade` } }, [
+      el('span', { className: `fill ${band(r?.grade ?? 0)}`, vars: { '--w': `${Math.max(2, r?.grade ?? 0)}%` } }),
+      el('span', { className: 'mid' }),
+    ]),
+    el('div', { className: 'unit-sub num', text: r ? `${r.value.toFixed(d.decimals)}${d.suffix ?? ''} ${d.stat}` : 'PFR data missing' }),
+  ]);
+}
+
+function lineCard(x: LineTarget): HTMLElement {
+  return el('li', { className: 'player' }, [
+    el('div', { className: 'player-head' }, [
+      el('span', { className: 'p-main' }, [
+        el('span', { className: 'p-name', text: x.name }),
+        el('span', { className: 'p-meta', text: `${x.team} · ${x.depth} · ${Math.round(100 * x.snapShare)}% of snaps · ${contractText(x.contract)}` }),
+      ]),
+      el('span', { className: `p-score num ${band(x.lineGrade)}`, text: String(Math.round(x.lineGrade)) }),
+    ]),
+  ]);
+}
+
 function teamSheet(t: TeamResult): HTMLElement {
   const list = (ids: string[]) => el('ol', { className: 'players' }, ids.map((id) => players.get(id)).filter((p): p is PlayerResult => !!p).map((p) => playerCard(p, { showTeam: true })));
   let shop: HTMLElement;
-  if (t.verdict === 'buy' && t.need) {
+  if (t.verdict === 'buy' && t.need?.line) {
+    const d = LINE[t.need.line];
+    shop = el('section', { className: 'shop' }, [
+      el('h3', { text: `Where to buy: ${t.need.label}` }),
+      el('p', { className: 'fine', text: `Starting linemen from the selling teams with the best ${d.label.toLowerCase()} (${d.stat}), up to ${LINE_TARGETS.perSeller} per team. The score is their line's grade, not an individual one: open data has no per-lineman stat.` }),
+      t.lineTargets.length ? el('ol', { className: 'players' }, t.lineTargets.map(lineCard)) : el('p', { className: 'fine', text: 'No starters found on selling teams.' }),
+    ]);
+  } else if (t.verdict === 'buy' && t.need) {
     shop = el('section', { className: 'shop' }, [
       el('h3', { text: `Where to buy: ${t.need.label}` }),
       el('p', { className: 'fine', text: `Top producers at ${t.need.positions.join(' / ')} on teams that should sell.` }),
@@ -225,6 +266,11 @@ function teamSheet(t: TeamResult): HTMLElement {
         ]),
       ]),
       el('section', { className: 'units' }, UNIT_KEYS.map((k) => unitBar(t, k))),
+      el('section', { className: 'units' }, [
+        el('h3', { text: 'Offensive line' }),
+        el('p', { className: 'fine', text: 'Team level, not opponent-adjusted. Also reflects the QB, backs and scheme.' }),
+        ...LINE_KEYS.map((k) => lineBar(t, k)),
+      ]),
       shop,
     ]),
   ]);
@@ -248,8 +294,13 @@ function closeTeam(): void {
 
 // ------------------------------------------------------------------ player rankings
 
+function lineAvg(t: TeamResult): number {
+  const gs = LINE_KEYS.map((k) => t.line[k]?.grade).filter((g): g is number => g !== undefined);
+  return gs.length ? gs.reduce((a, b) => a + b, 0) / gs.length : 0;
+}
+
 function playersView(): HTMLElement {
-  const groups = POSITION_GROUPS.map((g) => el('button', {
+  const groups = [...POSITION_GROUPS, 'OL' as const].map((g) => el('button', {
     className: `chip${state.group === g ? ' on' : ''}`,
     text: g,
     attrs: { 'aria-pressed': String(state.group === g) },
@@ -260,8 +311,29 @@ function playersView(): HTMLElement {
       className: `chip${state.mode === m ? ' on' : ''}`, text: m[0]!.toUpperCase() + m.slice(1), onClick: () => { state.mode = m; draw(); },
     })))
     : null;
-  const list = data.players.filter((p) => p.group === state.group).sort((a, b) => score(b) - score(a));
-  const pos = POSITIONS[state.group];
+  if (state.group === 'OL') return el('section', { className: 'rankings' }, [
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, groups),
+    el('h2', { className: 'pos-title', text: 'Offensive lines' }),
+    el('p', { className: 'fine', text: `Graded by team: ${LINE.passPro.label.toLowerCase()} from ${LINE.passPro.stat}, ${LINE.runBlock.label.toLowerCase()} from ${LINE.runBlock.stat}. Sorted by the average of the two grades. Tap a team.` }),
+    el('ol', { className: 'players' }, [...data.teams]
+      .sort((a, b) => lineAvg(b) - lineAvg(a) || a.team.localeCompare(b.team))
+      .map((t, i) => el('li', { className: 'player' }, [
+        el('button', { className: 'player-head', onClick: () => openTeam(t.team) }, [
+          el('span', { className: 'p-rank num', text: String(i + 1) }),
+          el('span', { className: 'p-main' }, [
+            el('span', { className: 'p-name', text: `${t.team} ${t.name}` }),
+            el('span', { className: 'p-meta', text: LINE_KEYS.map((k) => {
+              const r = t.line[k];
+              return `${LINE[k].label} ${r ? `${ordinal(r.rank)} (${r.value.toFixed(LINE[k].decimals)}${LINE[k].suffix ?? ''})` : '-'}`;
+            }).join(' · ') }),
+          ]),
+          el('span', { className: `p-score num ${band(lineAvg(t))}`, text: String(Math.round(lineAvg(t))) }),
+        ]),
+      ]))),
+  ]);
+  const group = state.group;
+  const list = data.players.filter((p) => p.group === group).sort((a, b) => score(b) - score(a));
+  const pos = POSITIONS[group];
   const weights = Object.entries(pos.weights).map(([k, w]) => `${STATS[k as keyof typeof STATS].label} ${Math.round(100 * (w ?? 0))}%`).join(' · ');
   const minWord = { dropbacks: 'dropbacks', carries: 'carries', targets: 'targets', defenseSnaps: 'defense snaps' }[pos.minimum.per];
   return el('section', { className: 'rankings' }, [
@@ -287,7 +359,9 @@ function footer(): HTMLElement {
     el('h3', { text: 'Method' }),
     el('p', { text: `Unit grades: EPA per play for pass and rush, offense and defense, adjusted for opponents with a ridge regression (each team's effect is shrunk toward average as if it had ${ADJUST.lambdaPlays.pass} extra average plays, so a half season of noise doesn't dominate), garbage time removed. Grade = normal percentile of the adjusted value among the 32 teams.` }),
     el('p', { text: `Verdict: playoff odds from ${PLAYOFF_SIM.simulations.toLocaleString('en-US')} simulated finishes (team strength blends adjusted EPA with point differential; standings ties broken at random, not by NFL tiebreakers). Odds ${pct(VERDICT.contenderOdds)}+ buy for a unit graded under ${VERDICT.holeGrade}; ${pct(VERDICT.sellerOdds)} or less sell; in between, the schedule left decides.` }),
-    el('p', { text: 'Player scores: percentile within the position of a weighted mix of stat percentiles, among players over a per-game volume minimum. Offensive line and specialists are not ranked: open data has no good per-player production stat for them.' }),
+    el('p', { text: 'Player scores: percentile within the position of a weighted mix of stat percentiles, among players over a per-game volume minimum. Offensive linemen are graded by team instead (Players, then OL); specialists are not ranked. Open data has no good per-player stat for either.' }),
+    el('p', { text: 'Offensive line: pass protection = QB pressures (PFR) per dropback; run blocking = rushing yards before contact per carry (PFR). When a buyer\'s weakest unit is pass O or rush O, it shops for the weaker half: the line, or the pass catchers (EPA per non-sack attempt) or backs (yards after contact per carry).' }),
+    el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
     data.ratingsCredit ? el('p', { text: `Ratings: ${data.ratingsCredit}` }) : null,

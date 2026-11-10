@@ -1,7 +1,10 @@
 /** The whole model: inputs (compact nflverse data) -> what the page shows. Pure: no clock, no I/O, no randomness
  * beyond the seeded playoff sim. */
-import { DIVISIONS, RATINGS_SOURCE, TEAM_NAMES, UNIT_KEYS, UNITS, type RankingMode, type RatingsSourceConfig } from './config.ts';
+import { BUY, DIVISIONS, RATINGS_SOURCE, TEAM_NAMES, UNIT_KEYS, UNITS, type RankingMode, type RatingsSourceConfig, type UnitKey } from './config.ts';
+import { ranks } from './stats.ts';
 import { buyTargets, tradeChips } from './buy.ts';
+import { playerContract } from './contracts.ts';
+import { gradeLines, lineRaw, lineStarters, lineTargets } from './line.ts';
 import { gradeUnits, weakestUnit } from './grades.ts';
 import { divisionOf, records, recordText, scheduleLeft, simulatePlayoffs, strengths } from './playoffs.ts';
 import { rankPlayers } from './players.ts';
@@ -44,7 +47,27 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
 
   const played: Record<string, number> = {};
   for (const t of teams) played[t] = recs[t]?.games ?? 0;
-  const players = rankPlayers(inp, { teamGames: played, ratings: ratingsCfg.enabled ? inp.ratings : undefined, ratingsCfg });
+  const playedWeeks = inp.games.filter((g) => g.homeScore !== null).map((g) => g.week);
+  const throughWeek = playedWeeks.length ? Math.max(...playedWeeks) : 0;
+  const players = rankPlayers(inp, { teamGames: played, weeksPlayed: throughWeek, ratings: ratingsCfg.enabled ? inp.ratings : undefined, ratingsCfg });
+
+  // offensive line (team level) and the halves of each unit, for choosing what a buyer needs
+  const raw = lineRaw(inp);
+  const lines = gradeLines(raw, teams);
+  const rankOf = (values: Record<string, number>, higherIsBetter: boolean): Record<string, number> => {
+    const have = teams.filter((t) => values[t] !== undefined);
+    const rk = ranks(have.map((t) => values[t] as number), higherIsBetter);
+    return Object.fromEntries(have.map((t, i) => [t, rk[i] as number]));
+  };
+  const rbYacRank = rankOf(raw.rbYac, true);
+  const halves = (t: string, unit: UnitKey): { primaryRank?: number; alternateRank?: number } => {
+    switch (unit) {
+      case 'passDefense': return { primaryRank: grades.passRushRank[t], alternateRank: grades.coverageRank[t] };
+      case 'passOffense': return { primaryRank: grades.airRank[t], alternateRank: lines[t]?.passPro?.rank };
+      case 'rushOffense': return { primaryRank: rbYacRank[t], alternateRank: lines[t]?.runBlock?.rank };
+      default: return {};
+    }
+  };
 
   const results: TeamResult[] = teams.map((t) => {
     const units = grades.units[t] as TeamResult['units'];
@@ -58,8 +81,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
       weakest,
       weakestGrade: units[weakest].grade,
       weakestRank: units[weakest].rank,
-      passRushRank: grades.passRushRank[t] ?? 0,
-      coverageRank: grades.coverageRank[t] ?? 0,
+      ...halves(t, weakest),
     });
     const division = divisionOf(t) ?? '';
     return {
@@ -81,23 +103,28 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
       verdict: v.verdict,
       reason: v.reason,
       weakest,
-      need: v.need ? { label: v.need.label, positions: [...v.need.positions] } : null,
+      need: v.need ? { label: v.need.label, positions: [...v.need.positions], ...(v.need.line ? { line: v.need.line } : {}) } : null,
       buyTargets: [],
       chips: [],
+      line: lines[t] ?? { passPro: null, runBlock: null },
+      lineTargets: [],
     };
   });
+  const starters = lineStarters(inp);
+  const contracts = new Map(inp.contracts.map((c) => [c.gsis, playerContract(c, throughWeek)]));
+  const sellers = new Set(results.filter((t) => BUY.fromVerdicts.includes(t.verdict)).map((t) => t.team));
   for (const t of results) {
     t.buyTargets = buyTargets(t, results, players);
     t.chips = tradeChips(t, players);
+    if (t.verdict === 'buy' && t.need?.line) t.lineTargets = lineTargets(t.need.line, t.team, sellers, starters, lines, contracts, BUY.statuses);
   }
 
   const modes: RankingMode[] = ratingsCfg.enabled && inp.ratings ? ['production', 'ratings', 'composite'] : ['production'];
-  const playedWeeks = inp.games.filter((g) => g.homeScore !== null).map((g) => g.week);
   return {
     schemaVersion: 1,
     sample: opts.sample ?? false,
     season: inp.season,
-    throughWeek: playedWeeks.length ? Math.max(...playedWeeks) : 0,
+    throughWeek,
     dataAsOf: opts.dataAsOf,
     teams: results,
     players,

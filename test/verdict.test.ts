@@ -4,7 +4,7 @@ import { decideVerdict, needFor, scheduleWord, type VerdictInput } from '../src/
 
 const base: VerdictInput = {
   record: '9-3', playoffOdds: 0.8, scheduleLeftRank: 16, teams: 32,
-  weakest: 'passDefense', weakestGrade: 20, weakestRank: 27, passRushRank: 30, coverageRank: 5,
+  weakest: 'passDefense', weakestGrade: 20, weakestRank: 27, primaryRank: 30, alternateRank: 5,
 };
 
 describe('verdict rules', () => {
@@ -36,10 +36,20 @@ describe('verdict rules', () => {
     expect(decideVerdict({ ...bubble, scheduleLeftRank: 16 }).reason).toBe('Stand pat: 5-5, 40% playoff odds, average schedule left');
   });
 
-  it('pass defense splits into pass rush or coverage by which half ranks worse', () => {
+  it('a unit splits into its two halves by which ranks worse', () => {
     expect(needFor('passDefense', 30, 5).label).toBe('pass rush');
     expect(needFor('passDefense', 5, 30).label).toBe('coverage');
-    expect(needFor('rushOffense', 1, 32).positions).toEqual(['RB']);
+    expect(needFor('passOffense', 5, 30)).toMatchObject({ label: 'pass protection', line: 'passPro' });
+    expect(needFor('passOffense', 30, 5).positions).toEqual(['WR', 'TE']);
+    expect(needFor('rushOffense', 3, 28)).toMatchObject({ label: 'run blocking', line: 'runBlock' });
+    expect(needFor('rushOffense', 28, 3).positions).toEqual(['RB']);
+    expect(needFor('rushDefense', 1, 32).positions).toEqual(['IDL', 'LB']);
+  });
+
+  it('with either half unknown, the primary need is used', () => {
+    expect(needFor('passOffense', undefined, 32).label).toBe('a pass catcher');
+    expect(needFor('rushOffense', 1, undefined).label).toBe('a running back');
+    expect(decideVerdict({ ...base, weakest: 'passOffense', primaryRank: 4, alternateRank: 29 }).reason).toBe('Buy pass protection: 9-3, pass O 27th');
   });
 
   it('schedule words follow the configured cutoffs', () => {

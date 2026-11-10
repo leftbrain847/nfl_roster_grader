@@ -14,7 +14,7 @@
     "worker:dev": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
     "smoke": "node scripts/smoke.mjs",
-    "refresh": "node pipeline/cli.ts",
+    "refresh": "node --max-old-space-size=4096 pipeline/cli.ts",
     "build:web": "vite build -c demo/vite.config.ts && node pipeline/build-web.ts",
     "sample": "node pipeline/make-sample.ts"
   },

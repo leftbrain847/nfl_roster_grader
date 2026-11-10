@@ -1,5 +1,5 @@
 /** Shapes shared by the refresh pipeline (pipeline/), the model (src/model/) and the page (src/client/). */
-import type { PositionGroup, RankingMode, StatKey, UnitKey, Verdict } from './config.ts';
+import type { LineKey, PositionGroup, RankingMode, StatKey, UnitKey, Verdict } from './config.ts';
 
 // ------------------------------------------------------------------ model inputs (compact, built from nflverse)
 
@@ -44,14 +44,18 @@ export interface PlayerGame {
 }
 
 export interface PfrPassRow { p: string; g: string; t: string; pressured: number; sacked: number }
-export interface PfrRushRow { p: string; g: string; t: string; carries: number; yac: number; btRush: number; btRec: number }
+export interface PfrRushRow { p: string; g: string; t: string; carries: number; ybc: number; yac: number; btRush: number; btRec: number }
 export interface PfrRecRow { p: string; g: string; t: string; drops: number; btRec: number }
 export interface PfrDefRow {
   p: string; g: string; t: string;
   targets: number; completions: number; yards: number; ratingSum: number; ints: number;
   pressures: number; tackles: number; missed: number;
 }
-export interface SnapRow { p: string; g: string; t: string; off: number; def: number }
+export interface SnapRow {
+  p: string; g: string; t: string; off: number; def: number;
+  /** Player name, kept only for offensive linemen: the roster file has no PFR id for them, so they join by name. */
+  n?: string;
+}
 
 export interface NgsPassing { p: string; att: number; cpoe: number }
 export interface NgsReceiving { p: string; tgt: number; separation: number; yacOverExpected: number }
@@ -67,7 +71,14 @@ export interface RosterPlayer {
   status: string;
 }
 
-export interface Contract { gsis: string; apyMillions: number; capPct: number; lastYear: number }
+export interface Contract {
+  gsis: string;
+  apyMillions: number;
+  capPct: number;
+  lastYear: number;
+  /** This season's base salary, millions (null if the contract has no row for this season). */
+  baseSalaryMillions: number | null;
+}
 
 export interface ModelInputs {
   season: number;
@@ -115,6 +126,34 @@ export interface UnitResult {
   rank: number;
 }
 
+export interface LineResult {
+  /** Pressure rate allowed (%) or yards before contact per carry. */
+  value: number;
+  grade: number;
+  rank: number;
+}
+
+export interface PlayerContract {
+  apyMillions: number;
+  capPct: number;
+  lastYear: number;
+  baseSalaryMillions: number | null;
+  /** Base salary still to be paid this season: what a team trading for him now takes on (bonuses excluded). */
+  baseSalaryLeftMillions: number | null;
+}
+
+/** An offensive-line starter on a selling team, ranked by his team's line grade (not an individual grade). */
+export interface LineTarget {
+  id: string;
+  name: string;
+  team: string;
+  depth: string;
+  /** Share of his team's offense snaps in the games he played, 0-1. */
+  snapShare: number;
+  lineGrade: number;
+  contract: PlayerContract | null;
+}
+
 export interface TeamResult {
   team: string;
   name: string;
@@ -137,11 +176,15 @@ export interface TeamResult {
   reason: string;
   weakest: UnitKey;
   /** What this team should shop for (buyers only). */
-  need: { label: string; positions: PositionGroup[] } | null;
+  need: { label: string; positions: PositionGroup[]; line?: LineKey } | null;
   /** Buyers: top producers at the need positions on seller teams. */
   buyTargets: string[];
   /** Sellers: their best producers. */
   chips: string[];
+  /** Team-level offensive-line grades; null when the PFR data behind one is missing. */
+  line: Record<LineKey, LineResult | null>;
+  /** Buyers whose need is on the offensive line: starters from sellers' best lines. */
+  lineTargets: LineTarget[];
 }
 
 export interface PlayerStat {
@@ -166,7 +209,7 @@ export interface PlayerResult {
   /** Rank within the position by production score. */
   rank: number;
   qualifiedAtPosition: number;
-  contract: { apyMillions: number; capPct: number; lastYear: number } | null;
+  contract: PlayerContract | null;
 }
 
 export interface ModelOutput {

@@ -3,7 +3,7 @@
  * what it covers (game ids or latest week), which decides fresh / lagging / kept.
  */
 import { gunzipSync } from 'node:zlib';
-import { PLAY_FILTER } from '../src/model/config.ts';
+import { LINE_TARGETS, PLAY_FILTER } from '../src/model/config.ts';
 import type {
   Contract, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
   RosterPlayer, SnapRow, TeamGame,
@@ -249,9 +249,10 @@ export const extractPfrPass = (t: Table, s: number): Extracted<PfrPassRow[]> =>
   pfrRows(t, s, ['times_pressured', 'times_sacked'], (row, r) => ({ ...base(row, r), pressured: r.num(row, 'times_pressured'), sacked: r.num(row, 'times_sacked') }));
 
 export const extractPfrRush = (t: Table, s: number): Extracted<PfrRushRow[]> =>
-  pfrRows(t, s, ['carries', 'rushing_yards_after_contact', 'rushing_broken_tackles', 'receiving_broken_tackles'], (row, r) => ({
+  pfrRows(t, s, ['carries', 'rushing_yards_before_contact', 'rushing_yards_after_contact', 'rushing_broken_tackles', 'receiving_broken_tackles'], (row, r) => ({
     ...base(row, r),
     carries: r.num(row, 'carries'),
+    ybc: r.num(row, 'rushing_yards_before_contact'),
     yac: r.num(row, 'rushing_yards_after_contact'),
     btRush: r.num(row, 'rushing_broken_tackles'),
     btRec: r.num(row, 'receiving_broken_tackles'),
@@ -277,16 +278,31 @@ export const extractPfrDef = (t: Table, s: number): Extracted<PfrDefRow[]> =>
   });
 
 export const extractSnaps = (t: Table, s: number): Extracted<SnapRow[]> =>
-  pfrRows(t, s, ['offense_snaps', 'defense_snaps'], (row, r) => ({ ...base(row, r), off: r.num(row, 'offense_snaps'), def: r.num(row, 'defense_snaps') }));
+  pfrRows(t, s, ['offense_snaps', 'defense_snaps', 'player', 'position'], (row, r) => ({
+    ...base(row, r),
+    off: r.num(row, 'offense_snaps'),
+    def: r.num(row, 'defense_snaps'),
+    ...(LINE_TARGETS.depth.includes(r.str(row, 'position')) ? { n: r.str(row, 'player') } : {}),
+  }));
 
-/** Contracts parquet -> the current contract per player (active, latest signed). hyparquet is loaded only here. */
-export async function extractContracts(buf: Uint8Array): Promise<Extracted<Contract[]>> {
-  const { parquetReadObjects } = await import('hyparquet');
+/**
+ * Contracts parquet -> the current contract per player (active, latest signed), with this season's base salary from
+ * its year-by-year `season_history`. hyparquet is loaded only here. Reading `season_history` takes ~1.3 GB of memory
+ * (it holds every contract's every year), which is why the refresh runs Node with a larger heap. A file without that
+ * column still gives the contract terms, with base salary unknown.
+ */
+export async function extractContracts(buf: Uint8Array, season: number): Promise<Extracted<Contract[]>> {
+  const { parquetMetadataAsync, parquetReadObjects } = await import('hyparquet');
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-  // only flat columns: the nested history columns are large and unused
-  const rows = (await parquetReadObjects({ file: ab, columns: ['is_active', 'year_signed', 'years', 'apy', 'apy_cap_pct', 'gsis_id'] })) as Record<string, unknown>[];
+  const meta = await parquetMetadataAsync(ab);
+  const names = new Set(meta.schema.map((x) => x.name));
+  const flat = ['is_active', 'year_signed', 'years', 'apy', 'apy_cap_pct', 'gsis_id'];
+  const missing = flat.filter((c) => !names.has(c));
+  if (missing.length) throw new Error(`missing columns: ${missing.join(', ')}`);
+  const history = names.has('season_history');
+  const rows = (await parquetReadObjects({ file: ab, columns: history ? [...flat, 'season_history'] : flat })) as Record<string, unknown>[];
   const best = new Map<string, { signed: number; c: Contract }>();
-  const n = (v: unknown): number => (typeof v === 'bigint' ? Number(v) : typeof v === 'number' ? v : NaN);
+  const n = (v: unknown): number => (typeof v === 'bigint' ? Number(v) : typeof v === 'number' ? v : typeof v === 'string' && v !== '' ? Number(v) : NaN);
   for (const row of rows) {
     const gsis = typeof row.gsis_id === 'string' ? row.gsis_id : '';
     const signed = n(row.year_signed);
@@ -296,9 +312,19 @@ export async function extractContracts(buf: Uint8Array): Promise<Extracted<Contr
     const prev = best.get(gsis);
     if (prev && prev.signed >= signed) continue;
     const capPct = n(row.apy_cap_pct);
+    const year = Array.isArray(row.season_history)
+      ? (row.season_history as Record<string, unknown>[]).find((h) => n(h?.year) === season)
+      : undefined;
+    const base = year ? n(year.base_salary) : NaN;
     best.set(gsis, {
       signed,
-      c: { gsis, apyMillions: Math.round(apy * 100) / 100, capPct: Number.isFinite(capPct) ? Math.round(capPct * 1000) / 1000 : 0, lastYear: signed + (Number.isFinite(years) ? years : 1) - 1 },
+      c: {
+        gsis,
+        apyMillions: Math.round(apy * 100) / 100,
+        capPct: Number.isFinite(capPct) ? Math.round(capPct * 1000) / 1000 : 0,
+        lastYear: signed + (Number.isFinite(years) ? years : 1) - 1,
+        baseSalaryMillions: Number.isFinite(base) ? Math.round(base * 1000) / 1000 : null,
+      },
     });
   }
   return { data: [...best.values()].map((b) => b.c) };
@@ -306,7 +332,7 @@ export async function extractContracts(buf: Uint8Array): Promise<Extracted<Contr
 
 /** Dispatch: raw bytes of one source -> its compact data. */
 export async function extract(id: SourceId, buf: Uint8Array, name: string, season: number): Promise<Extracted> {
-  if (id === 'contracts') return extractContracts(buf);
+  if (id === 'contracts') return extractContracts(buf, season);
   const t = table(buf, name);
   switch (id) {
     case 'schedules': return extractSchedules(t, season);
