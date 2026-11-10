@@ -617,7 +617,7 @@ export interface MoveGradeConfig {
    * Score (0-100) = weighted mean of the parts available:
    * - need: 100 - the team's grade, before the move, in the unit the player's position feeds (the worse one if two)
    * - production: the player's production percentile at his position, this season to date
-   * - cost: his production's worth (Value tab) minus his contract's average per year, over the years left
+   * - cost: his production's worth (Value tab, in cap-hit terms) minus his cap hit, summed over the seasons left
    * A move that sends a player away scores each part from the other side (100 - part).
    */
   weights: { need: number; production: number; cost: number };
@@ -625,9 +625,9 @@ export interface MoveGradeConfig {
   units: Record<PositionGroup, UnitKey[]>;
   /** Need comes from games before the move; with fewer than this many, from the season so far (and it says so). */
   minGamesBefore: number;
-  /** Surplus per year x years left, millions, that moves the cost part halfway from 50 to 100 (tanh scale). */
+  /** Surplus summed over the seasons left, millions, that moves the cost part halfway from 50 to 100 (tanh scale). */
   costScaleMillions: number;
-  /** Years of the contract counted, this season included. */
+  /** Seasons of the contract counted, this season included. */
   maxYears: number;
   /** Lowest score for each word, best first; below the last is the fallback. */
   words: [number, string][];

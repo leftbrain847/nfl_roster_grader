@@ -3,8 +3,8 @@
  * - need: how weak the unit the player's position feeds was BEFORE the move (unit grades rebuilt from the games
  *   played before its date; offseason moves fall back to the season so far, and the reason says so)
  * - production: his production percentile at his position, this season to date
- * - cost: what that production is worth (the Value tab's pay at the same percentile) minus his contract's average
- *   per year, times the years left on it
+ * - cost: what that production is worth (the Value tab's cap hit at the same percentile) minus his cap hit, summed
+ *   over the seasons left on his contract
  * A departure scores each part from the other side: losing a good, fairly paid player at a weak unit grades low;
  * shedding an overpaid one at a strong unit grades high. Players with no ranked production aren't graded.
  * Not in the data: cap space, dead money, and what draft picks are worth.
@@ -74,7 +74,8 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
   const gamesBefore = (team: string, date: string): number => played.filter((g) => g.gameday < date && (g.home === team || g.away === team)).length;
 
   const one = (m: Move, team: string, adds: boolean): MoveGrade => {
-    if (!m.id) return { team, score: null, word: null, reason: 'Draft picks aren’t priced' };
+    if (m.pick) return { team, score: null, word: null, reason: 'Draft picks aren’t priced' };
+    if (!m.id) return { team, score: null, word: null, reason: 'Player not matched to a roster' };
     const p = players.get(m.id);
     if (!p) {
       const why = m.group === 'OL' || m.group === 'ST' ? 'No individual production stat at his position' : 'No ranked production this season';
@@ -86,11 +87,13 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
     const keys = cfg.units[p.group];
     const worst = units ? keys.map((k) => ({ k, u: units[k] })).sort((a, b) => a.u.grade - b.u.grade)[0] : undefined;
     const need = worst ? 100 - worst.u.grade : null;
-    // cost: worth minus pay per year, over the years left
+    // cost: worth against his cap hit in each season left (this one included), the same pay measure worth is built from
     const v = values.get(m.id);
     const c = contracts.get(m.id);
-    const perYear = c?.apyMillions ?? v?.capMillions ?? null;
-    const years = c ? Math.min(cfg.maxYears, Math.max(1, c.lastYear - inp.season + 1)) : 1;
+    const caps = (c?.seasons ?? []).filter((x) => x.year >= inp.season && x.cap !== null && x.cap > 0).slice(0, cfg.maxYears).map((x) => x.cap as number);
+    if (!caps.length && v) caps.push(v.capMillions);
+    const years = caps.length;
+    const perYear = years ? caps.reduce((a, b) => a + b, 0) / years : null;
     const cost = v && perYear !== null ? costScore(v.worthMillions, perYear, years, cfg) : null;
     const score = round(combine({ need, production: p.scores.production, cost }, adds, cfg), 0);
 

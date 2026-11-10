@@ -93,6 +93,7 @@ export function buildMoves(inp: ModelInputs, cfg: MovesConfig = MOVES): Move[] {
         date: t.date, when: t.date ? shortDate(t.date) : 'Trade', kind: 'trade', id: p?.p ?? null, name,
         pos: p?.pos ?? '', group: t.name ? positionGroup(p?.pos ?? '', cfg) : cfg.other, team: t.received, from: t.gave,
         detail: `Traded from ${t.gave} to ${t.received}${back.length ? ` for ${back.join(', ')}` : ''}`,
+        ...(t.name ? {} : { pick: true }),
       });
     }
   }

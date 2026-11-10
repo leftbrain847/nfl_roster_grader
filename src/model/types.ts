@@ -384,6 +384,8 @@ export interface Move {
   /** The other team, if any (traded from, signed from). */
   from: string | null;
   detail: string;
+  /** A traded draft pick (not a player). */
+  pick?: boolean;
   /** The move judged for each team in it: the team first, then (trades) the team that gave the player up. */
   grades?: MoveGrade[];
 }
