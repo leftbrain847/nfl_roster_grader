@@ -244,3 +244,4 @@ button:focus-visible, tr:focus-visible { outline: 3px solid var(--accent); outli
 .move-kind { flex: none; width: 5.6em; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); line-height: 1.2; }
 .k-trade, .k-moved { color: var(--accent); } .k-draft, .k-signed, .k-activated, .k-promoted { color: var(--buy); } .k-released, .k-retired { color: var(--sell); } .k-reserve { color: var(--pat); }
 .tabs { flex-wrap: wrap; }
+.trade-value { border-top: 1px solid var(--line); padding-top: 4px; }

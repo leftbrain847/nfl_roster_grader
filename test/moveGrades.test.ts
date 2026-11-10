@@ -46,12 +46,12 @@ describe('move grades', () => {
 
   it('leaves out what it cannot judge: picks, unranked players, linemen, and non-decisions', () => {
     const out = gradeMoves([
-      move({ kind: 'trade', id: null, name: '2027 round 1 pick', group: 'Other', pick: true }),
+      move({ kind: 'trade', id: null, name: '2027 round 1 pick', group: 'Other', pick: true, pickOf: { season: 2027, round: 1, number: null } }),
       move({ kind: 'signed', id: 'nobody', from: null }),
       move({ kind: 'signed', id: 'ol1', group: 'OL', from: null }),
       move({ kind: 'reserve', from: null }),
     ], base);
-    expect(out[0]?.grades?.[0]?.reason).toBe('Draft picks aren’t priced');
+    expect(out[0]?.grades?.[0]).toMatchObject({ score: null, reason: expect.stringMatching(/^Worth \$[\d.]+M: 2027 1st \(valued as pick 16, the middle of the round\)$/) });
     expect(out[1]?.grades?.[0]).toMatchObject({ score: null, reason: 'No ranked production this season' });
     expect(out[2]?.grades?.[0]?.reason).toBe('No individual production stat at his position');
     expect(out[3]?.grades).toBeUndefined();

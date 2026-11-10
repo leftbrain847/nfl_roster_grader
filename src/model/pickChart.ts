@@ -1,0 +1,12 @@
+/**
+ * Draft pick surplus value: Ben Baldwin, "NFL Draft Value Chart", Open Source Football (2023, updated 2025),
+ * https://www.opensourcefootball.com/posts/2023-02-23-nfl-draft-value-chart/ ; data:
+ * https://github.com/nflverse/open-source-football/blob/master/_posts/2023-02-23-nfl-draft-value-chart/osf_draft_chart.csv
+ * Licensed CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/): attribution required, no commercial use.
+ * This file is that chart's `surplus` column, unchanged, and keeps that license (not the repo's).
+ *
+ * What it is: for each overall pick, the second-contract pay (APY as % of the cap; no second contract = 0) of
+ * players drafted there (2011-2020 classes, QBs excluded, loess-smoothed), minus the rookie deal's cost as % of the
+ * cap. Units: percent of the salary cap per season, over the 4-year rookie deal.
+ */
+export const PICK_SURPLUS_PCT_OF_CAP: readonly number[] = [2.33, 2.43, 2.47, 2.52, 2.68, 3.02, 3.27, 3.53, 3.47, 3.49, 3.55, 3.68, 3.65, 3.66, 3.63, 3.65, 3.62, 3.59, 3.54, 3.48, 3.42, 3.37, 3.32, 3.28, 3.23, 3.19, 3.14, 3.08, 3.09, 3.06, 3.03, 2.98, 3.17, 3.11, 3.06, 3.02, 2.97, 2.93, 2.89, 2.85, 2.81, 2.77, 2.73, 2.69, 2.65, 2.62, 2.6, 2.56, 2.53, 2.5, 2.47, 2.44, 2.41, 2.38, 2.35, 2.31, 2.28, 2.24, 2.21, 2.17, 2.14, 2.1, 2.06, 2.02, 2.02, 1.98, 1.94, 1.91, 1.87, 1.84, 1.81, 1.78, 1.76, 1.73, 1.7, 1.68, 1.65, 1.62, 1.6, 1.58, 1.56, 1.53, 1.51, 1.49, 1.47, 1.45, 1.43, 1.41, 1.39, 1.37, 1.35, 1.32, 1.3, 1.28, 1.26, 1.24, 1.22, 1.2, 1.18, 1.16, 1.14, 1.13, 1.11, 1.09, 1.12, 1.1, 1.09, 1.07, 1.06, 1.04, 1.03, 1.01, 1, 0.98, 0.97, 0.96, 0.94, 0.93, 0.92, 0.9, 0.89, 0.88, 0.87, 0.85, 0.84, 0.83, 0.82, 0.8, 0.79, 0.78, 0.77, 0.76, 0.75, 0.74, 0.73, 0.72, 0.73, 0.72, 0.73, 0.72, 0.71, 0.71, 0.7, 0.69, 0.69, 0.68, 0.67, 0.67, 0.66, 0.66, 0.65, 0.64, 0.63, 0.63, 0.62, 0.61, 0.6, 0.6, 0.59, 0.58, 0.57, 0.56, 0.55, 0.54, 0.54, 0.53, 0.52, 0.51, 0.5, 0.5, 0.49, 0.48, 0.47, 0.46, 0.45, 0.44, 0.44, 0.43, 0.42, 0.41, 0.41, 0.4, 0.39, 0.38, 0.38, 0.37, 0.36, 0.35, 0.35, 0.34, 0.33, 0.33, 0.32, 0.31, 0.31, 0.3, 0.29, 0.29, 0.28, 0.27, 0.27, 0.26, 0.25, 0.25, 0.24, 0.24, 0.23, 0.22, 0.22, 0.21, 0.21, 0.2, 0.2, 0.19, 0.19, 0.18, 0.18, 0.17, 0.17, 0.16, 0.16, 0.15, 0.15, 0.14, 0.14, 0.13, 0.13, 0.12, 0.12, 0.12, 0.11, 0.11, 0.1, 0.1, 0.1, 0.09, 0.09, 0.08, 0.08, 0.08, 0.07, 0.07, 0.07, 0.06, 0.06, 0.06, 0.06, 0.05, 0.05, 0.05, 0.04, 0.04, 0.04, 0.04, 0.03, 0.03];

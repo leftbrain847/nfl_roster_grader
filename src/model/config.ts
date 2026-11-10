@@ -656,6 +656,39 @@ export const MOVE_GRADE: MoveGradeConfig = {
   departs: ['released'],
 };
 
+// ---------------------------------------------------------------------------------------------------------------
+// Trade value: players and draft picks in the same dollars (pick chart: src/model/pickChart.ts, Baldwin, CC BY-NC)
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface PickValueConfig {
+  /** This season's salary cap, millions: turns the chart's % of cap into dollars. 2026: $301.2M (NFL, Feb 27 2026). */
+  capMillions: number;
+  /** The chart's surplus is per season over the rookie deal: this many seasons. */
+  rookieYears: number;
+  picksPerRound: number;
+  /** A pick whose slot isn't known yet is valued at this pick of its round (16 = the middle). */
+  unknownSlot: number;
+  /**
+   * Future picks. 'round': a pick N drafts away is valued one round later per draft (the trade-market convention:
+   * a future 1st is priced like a 2nd), and past round 7 it keeps the last pick's value. 'rate': its value falls by
+   * `rate` per draft away (Baldwin's worked example uses 10%).
+   */
+  future: { rule: 'round' | 'rate'; rate: number };
+  /** A team's net trade value (millions, over the horizon) that moves its trade grade halfway from 50 to 100 (tanh). */
+  scaleMillions: number;
+  credit: string;
+}
+
+export const PICK_VALUE: PickValueConfig = {
+  capMillions: 301.2,
+  rookieYears: 4,
+  picksPerRound: 32,
+  unknownSlot: 16,
+  future: { rule: 'round', rate: 0.1 },
+  scaleMillions: 25,
+  credit: 'Pick values: Ben Baldwin, NFL Draft Value Chart, Open Source Football (CC BY-NC 4.0).',
+};
+
 export interface BuyConfig {
   /** Targets listed per buyer. */
   targetsPerTeam: number;

@@ -13,6 +13,7 @@
  */
 import { MOVE_GRADE, UNITS, type MoveGradeConfig } from './config.ts';
 import { seasonStateBefore, type SeasonState } from './odds.ts';
+import { pickPrice, tradeValues } from './tradeValue.ts';
 import { round } from './stats.ts';
 import type { Contract, Game, Move, MoveGrade, PlayerResult, PlayerValue, TeamGame } from './types.ts';
 
@@ -74,7 +75,11 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
   const gamesBefore = (team: string, date: string): number => played.filter((g) => g.gameday < date && (g.home === team || g.away === team)).length;
 
   const one = (m: Move, team: string, adds: boolean): MoveGrade => {
-    if (m.pick) return { team, score: null, word: null, reason: 'Draft picks aren’t priced' };
+    if (m.pick) {
+      if (!m.pickOf) return { team, score: null, word: null, reason: 'Pick not identified' };
+      const pp = pickPrice(m.pickOf, m.date);
+      return { team, score: null, word: null, reason: `Worth $${pp.millions}M: ${pp.note}` };
+    }
     if (!m.id) return { team, score: null, word: null, reason: 'Player not matched to a roster' };
     const p = players.get(m.id);
     if (!p) {
@@ -113,12 +118,13 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
     return { team, score, word: wordFor(score, cfg), reason: bits.join(' · ') };
   };
 
-  return moves.map((m) => {
+  const graded = moves.map((m) => {
     const grades: MoveGrade[] = [];
     if (cfg.adds.includes(m.kind)) {
       grades.push(one(m, m.team, true));
-      if (m.from && (m.kind === 'trade' || m.kind === 'moved')) grades.push(one(m, m.from, false));
+      if (m.from && !m.pick && (m.kind === 'trade' || m.kind === 'moved')) grades.push(one(m, m.from, false));   // a pick's value is the same for both sides: shown once
     } else if (cfg.departs.includes(m.kind)) grades.push(one(m, m.team, false));   // detail reads "Released by <team>"
     return grades.length ? { ...m, grades } : m;
   });
+  return tradeValues(graded, inp.season, values, contracts);
 }
