@@ -5,22 +5,24 @@
  * - production: his production percentile at his position, this season to date
  * - cost: what that production is worth (the Value tab's cap hit at the same percentile) minus his cap hit, summed
  *   over the seasons left on his contract
+ * - window: the team's playoff odds before the move (same re-run): adding talent fits a contender, selling fits a
+ *   team out of the race
  * A departure scores each part from the other side: losing a good, fairly paid player at a weak unit grades low;
  * shedding an overpaid one at a strong unit grades high. Players with no ranked production aren't graded.
  * Not in the data: cap space, dead money, and what draft picks are worth.
  */
-import { MOVE_GRADE, UNITS, type MoveGradeConfig, type UnitKey } from './config.ts';
-import { gradeUnits } from './grades.ts';
+import { MOVE_GRADE, UNITS, type MoveGradeConfig } from './config.ts';
+import { seasonStateBefore, type SeasonState } from './odds.ts';
 import { round } from './stats.ts';
-import type { Contract, Game, Move, MoveGrade, PlayerResult, PlayerValue, TeamGame, UnitResult } from './types.ts';
+import type { Contract, Game, Move, MoveGrade, PlayerResult, PlayerValue, TeamGame } from './types.ts';
 
 export interface MoveGradeInputs {
   season: number;
   games: Game[];
   teamGames: TeamGame[];
   teams: string[];
-  /** Season-so-far unit grades, for teams with too few games before the move. */
-  seasonUnits: Record<string, Record<UnitKey, UnitResult>>;
+  /** The season so far (unit grades, playoff odds), for teams with too few games before the move. */
+  seasonNow: Pick<SeasonState, 'grades' | 'odds'>;
   players: PlayerResult[];
   values: PlayerValue[];
   contracts: Contract[];
@@ -41,11 +43,11 @@ export function costScore(worth: number, perYear: number, years: number, cfg: Mo
 }
 
 /** Pure: weighted mean of the parts present; a departure flips each part. */
-export function combine(parts: { need: number | null; production: number; cost: number | null }, adds: boolean, cfg: MoveGradeConfig = MOVE_GRADE): number {
+export function combine(parts: { need: number | null; production: number; cost: number | null; window?: number | null }, adds: boolean, cfg: MoveGradeConfig = MOVE_GRADE): number {
   const W = cfg.weights;
   let sum = 0;
   let w = 0;
-  for (const [k, v] of [['need', parts.need], ['production', parts.production], ['cost', parts.cost]] as const) {
+  for (const [k, v] of [['need', parts.need], ['production', parts.production], ['cost', parts.cost], ['window', parts.window ?? null]] as const) {
     if (v === null) continue;
     sum += W[k] * (adds ? v : 100 - v);
     w += W[k];
@@ -57,19 +59,17 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
   const players = new Map(inp.players.map((p) => [p.id, p]));
   const values = new Map(inp.values.map((v) => [v.id, v]));
   const contracts = new Map(inp.contracts.map((c) => [c.gsis, c]));
-  const gameDay = new Map(inp.games.map((g) => [g.id, g.gameday]));
   const played = inp.games.filter((g) => g.homeScore !== null);
 
-  // unit grades from the games before each date (memoized: moves share a handful of dates)
-  const before = new Map<string, Record<string, Record<UnitKey, UnitResult>>>();
-  const unitsBefore = (date: string): Record<string, Record<UnitKey, UnitResult>> => {
-    let u = before.get(date);
-    if (!u) {
-      const tg = inp.teamGames.filter((g) => (gameDay.get(g.game) ?? '9999') < date);
-      u = tg.length ? gradeUnits(tg, inp.teams).units : {};
-      before.set(date, u);
+  // the season as it stood before each date (memoized: moves share a handful of dates)
+  const before = new Map<string, Pick<SeasonState, 'grades' | 'odds'>>();
+  const stateBefore = (date: string): Pick<SeasonState, 'grades' | 'odds'> => {
+    let st = before.get(date);
+    if (!st) {
+      st = seasonStateBefore(inp.games, inp.teamGames, inp.teams, date);
+      before.set(date, st);
     }
-    return u;
+    return st;
   };
   const gamesBefore = (team: string, date: string): number => played.filter((g) => g.gameday < date && (g.home === team || g.away === team)).length;
 
@@ -83,7 +83,11 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
     }
     // need, before the move
     const early = !m.date || gamesBefore(team, m.date) < cfg.minGamesBefore;
-    const units = (early ? inp.seasonUnits : unitsBefore(m.date))[team];
+    const state = early ? inp.seasonNow : stateBefore(m.date);
+    const units = state.grades.units[team];
+    // window: playoff odds before the move; contenders should add talent, teams out of it should sell
+    const odds = state.odds[team];
+    const window = odds === undefined ? null : 100 * odds;
     const keys = cfg.units[p.group];
     const worst = units ? keys.map((k) => ({ k, u: units[k] })).sort((a, b) => a.u.grade - b.u.grade)[0] : undefined;
     const need = worst ? 100 - worst.u.grade : null;
@@ -95,10 +99,11 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
     const years = caps.length;
     const perYear = years ? caps.reduce((a, b) => a + b, 0) / years : null;
     const cost = v && perYear !== null ? costScore(v.worthMillions, perYear, years, cfg) : null;
-    const score = round(combine({ need, production: p.scores.production, cost }, adds, cfg), 0);
+    const score = round(combine({ need, production: p.scores.production, cost, window }, adds, cfg), 0);
 
     const bits: string[] = [];
     if (worst) bits.push(`${UNITS[worst.k].reason} ${ordinal(worst.u.rank)}${early ? ' (season so far)' : ' before'}`);
+    if (odds !== undefined) bits.push(`${Math.round(100 * odds)}% playoff odds${early ? '' : ' before'}`);
     bits.push(`${ordinal(Math.round(p.scores.production))} pct producer`);
     if (v && perYear !== null) {
       const gap = round(v.worthMillions - perYear, 1);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MOVE_GRADE, type UnitKey } from '../src/model/config.ts';
 import { combine, costScore, gradeMoves, wordFor, type MoveGradeInputs } from '../src/model/moveGrades.ts';
+import type { UnitGrades } from '../src/model/grades.ts';
 import type { Contract, Game, Move, PlayerResult, PlayerValue, TeamGame, UnitResult } from '../src/model/types.ts';
 
 const unit = (grade: number, rank: number): UnitResult => ({ adjusted: 0, raw: 0, plays: 100, grade, rank });
@@ -17,7 +18,8 @@ const move = (over: Partial<Move>): Move => ({ date: '2026-11-08', when: 'Week 1
 
 const base: MoveGradeInputs = {
   season: 2026, games: [], teamGames: [], teams: ['JAX', 'PHI'],
-  seasonUnits: { JAX: units(10, 30), PHI: units(90, 2) },
+  // JAX: contender with a weak pass D; PHI: out of the race with a strong one
+  seasonNow: { grades: { units: { JAX: units(10, 30), PHI: units(90, 2) } } as unknown as UnitGrades, odds: { JAX: 0.9, PHI: 0.1 } },
   players: [player('p1', 90), player('p2', 20)],
   values: [value('p1', 20, 5), value('p2', 3, 15)],
   contracts: [contract('p1', [5, 5]), contract('p2', [15, 15, 15])],
@@ -29,7 +31,7 @@ describe('move grades', () => {
     const [jax, phi] = m?.grades ?? [];
     expect(jax?.team).toBe('JAX');
     expect(jax?.word).toBe('Great');
-    expect(jax?.reason).toBe('pass D 30th (season so far) · 90th pct producer · $15M/yr under his worth for 2 yrs');
+    expect(jax?.reason).toBe('pass D 30th (season so far) · 90% playoff odds · 90th pct producer · $15M/yr under his worth for 2 yrs');
     expect(phi?.team).toBe('PHI');
     expect(phi?.score).toBeLessThan(jax?.score ?? 0);
   });
@@ -73,6 +75,12 @@ describe('move grades', () => {
     expect(late).not.toContain('30th');   // not the season-so-far stand-in
     expect(early).toContain('(season so far)');
     expect(gradeMoves([move({ date: '' })], inp)[0]?.grades?.[0]?.reason).toContain('(season so far)');
+  });
+
+  it('playoff odds: selling talent grades better for a team out of the race than for a contender', () => {
+    const sell = (odds: number): number => gradeMoves([move({ kind: 'released', team: 'PHI', from: null })], { ...base, seasonNow: { ...base.seasonNow, odds: { PHI: odds } } })[0]?.grades?.[0]?.score ?? 0;
+    expect(sell(0.05)).toBeGreaterThan(sell(0.95));
+    expect(sell(0.05) - sell(0.95)).toBeCloseTo(100 * 0.9 * MOVE_GRADE.weights.window / (MOVE_GRADE.weights.need + MOVE_GRADE.weights.production + MOVE_GRADE.weights.cost + MOVE_GRADE.weights.window), -0.5);
   });
 
   it('parts: cost is 50 at fair pay, words follow the thresholds, missing parts drop out of the mean', () => {

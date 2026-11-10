@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MOVES } from '../src/model/config.ts';
-import { buildMoves, positionGroup, rosterMove } from '../src/model/moves.ts';
-import type { Game, ModelInputs } from '../src/model/types.ts';
+import { buildMoves, classifyTeamChanges, positionGroup, rosterMove } from '../src/model/moves.ts';
+import type { Game, ModelInputs, Move } from '../src/model/types.ts';
 
 const empty: ModelInputs = {
   season: 2026, games: [], teamGames: [], playerGames: [], pfrPass: [], pfrRush: [], pfrRec: [], pfrDef: [], snaps: [],
@@ -76,5 +76,17 @@ describe('trades and the draft', () => {
   it('positions from any file map to one filter group', () => {
     expect(['OT', 'G', 'C', 'T'].map((p) => positionGroup(p))).toEqual(['OL', 'OL', 'OL', 'OL']);
     expect(['DE', 'NT', 'OLB', 'SAF', 'LS', 'xx'].map((p) => positionGroup(p))).toEqual(['DL', 'DL', 'LB', 'DB', 'ST', MOVES.other]);
+  });
+});
+
+describe('trade or waiver claim (roster to roster, no trade row)', () => {
+  const change = (id: string, team: string, from: string): Move => ({ date: '2026-10-01', when: 'Week 5', kind: 'moved', id, name: id, pos: 'WR', group: 'WR', team, from, detail: 'Joined' });
+  it('players going both ways between two teams that week: a trade; otherwise it stays trade or claim', () => {
+    const out = classifyTeamChanges([change('a', 'AAA', 'BBB'), change('b', 'BBB', 'AAA'), change('c', 'CCC', 'DDD')], new Set());
+    expect(out.map((m) => m.kind)).toEqual(['trade', 'trade', 'moved']);
+    expect(out[0]?.detail).toBe('Traded from BBB to AAA (players went both ways that week)');
+  });
+  it('drops a roster change the trades file already has', () => {
+    expect(classifyTeamChanges([change('a', 'AAA', 'BBB')], new Set(['a|AAA']))).toEqual([]);
   });
 });

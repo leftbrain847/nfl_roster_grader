@@ -603,7 +603,7 @@ export const MOVES: MovesConfig = {
   // TRD, TRT and TRC show up a handful of times a season with no documented meaning, so they mark no trade
   status: { active: ['ACT', 'INA'], reserve: 'RES', practice: 'DEV', released: 'CUT', retired: 'RET', traded: [] },
   labels: {
-    trade: 'Trade', moved: 'Changed teams', draft: 'Drafted', signed: 'Signed', released: 'Released', reserve: 'Reserve',
+    trade: 'Trade', moved: 'Trade or claim', draft: 'Drafted', signed: 'Signed', released: 'Released', reserve: 'Reserve',
     activated: 'Activated', promoted: 'Promoted', practice: 'Practice squad', retired: 'Retired',
   },
 };
@@ -618,9 +618,10 @@ export interface MoveGradeConfig {
    * - need: 100 - the team's grade, before the move, in the unit the player's position feeds (the worse one if two)
    * - production: the player's production percentile at his position, this season to date
    * - cost: his production's worth (Value tab, in cap-hit terms) minus his cap hit, summed over the seasons left
+   * - window: the team's playoff odds before the move (x100): contenders should add, teams out of it should sell
    * A move that sends a player away scores each part from the other side (100 - part).
    */
-  weights: { need: number; production: number; cost: number };
+  weights: { need: number; production: number; cost: number; window: number };
   /** Ranked position -> the units it feeds. */
   units: Record<PositionGroup, UnitKey[]>;
   /** Need comes from games before the move; with fewer than this many, from the season so far (and it says so). */
@@ -638,7 +639,7 @@ export interface MoveGradeConfig {
 }
 
 export const MOVE_GRADE: MoveGradeConfig = {
-  weights: { need: 0.35, production: 0.35, cost: 0.3 },
+  weights: { need: 0.25, production: 0.25, cost: 0.25, window: 0.25 },
   units: {
     QB: ['passOffense'], WR: ['passOffense'], TE: ['passOffense'], RB: ['rushOffense'],
     EDGE: ['passDefense'], IDL: ['passDefense', 'rushDefense'], LB: ['rushDefense', 'passDefense'], CB: ['passDefense'], S: ['passDefense'],
