@@ -224,7 +224,7 @@ export const STATS: Record<StatKey, StatDef> = {
   pressuresPer100: { label: 'Pressures/100 snaps', decimals: 1, source: 'PFR' },
   sacksPer100: { label: 'Sacks/100 snaps', decimals: 1, source: 'play-by-play' },
   tflPer100: { label: 'TFL/100 snaps', decimals: 1, source: 'play-by-play' },
-  bigPlaysPer100: { label: 'Big plays/100 snaps', decimals: 1, source: 'play-by-play' },
+  bigPlaysPer100: { label: 'Big-play EPA/100 snaps', decimals: 1, source: 'play-by-play' },
   tacklesPer100: { label: 'Tackles/100 snaps', decimals: 1, source: 'play-by-play' },
   missedTackleRate: { label: 'Missed tackle rate', decimals: 0, suffix: '%', lowerIsBetter: true, source: 'PFR' },
   yardsPerTargetAllowed: { label: 'Yds/target allowed', decimals: 1, lowerIsBetter: true, source: 'PFR' },
@@ -234,21 +234,26 @@ export const STATS: Record<StatKey, StatDef> = {
 };
 
 /**
- * Big plays: the defensive plays worth more than a tackle. Every defender is credited the same way, whatever his
- * position, and every defensive group weighs them the same (BIG_PLAYS.weight), so a corner's tackle for loss or a
- * safety's sack counts as much as a lineman's. One play gives a player at most one credit, the highest of what he
- * did on it: a sack is nearly always also a QB hit and a tackle for loss in the data, and an interception is also a
- * pass defensed. A half sack is half of `sack`.
+ * Big plays: the defensive plays worth more than a tackle (a sack, interception, forced fumble, tackle for loss, pass
+ * defensed or QB hit). Each is worth the EPA it took from the offense on that play (minus the play's EPA, never below
+ * 0), so a takeaway counts more than a sack, a third-down sack more than a first-down one, and a forced fumble the
+ * offense recovers little. When several defenders made a big play on one play, they split it evenly; a player
+ * credited with several things on one play (a sack is nearly always also a QB hit) is counted once. Every defender
+ * is credited the same way, whatever his position, and every defensive group weighs them the same.
  */
 export interface BigPlaysConfig {
-  values: { sack: number; interception: number; forcedFumble: number; tackleForLoss: number; passDefensed: number; qbHit: number };
+  /** Play-by-play columns that credit a defender with a big play. */
+  columns: string[];
   /** Its weight in every defensive group's production score. */
   weight: number;
 }
 
 export const BIG_PLAYS: BigPlaysConfig = {
-  // takeaways count double: an interception or forced fumble changes possession; a sack or TFL loses yards
-  values: { sack: 1, interception: 2, forcedFumble: 2, tackleForLoss: 1, passDefensed: 0.5, qbHit: 0.5 },
+  columns: [
+    'sack_player_id', 'half_sack_1_player_id', 'half_sack_2_player_id', 'interception_player_id',
+    'forced_fumble_player_1_player_id', 'forced_fumble_player_2_player_id', 'tackle_for_loss_1_player_id', 'tackle_for_loss_2_player_id',
+    'pass_defense_1_player_id', 'pass_defense_2_player_id', 'qb_hit_1_player_id', 'qb_hit_2_player_id',
+  ],
   weight: 0.35,
 };
 

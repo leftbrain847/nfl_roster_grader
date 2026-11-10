@@ -157,23 +157,9 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
     // forced fumbles: optional columns (an older file without them just has none)
     credit('forced_fumble_player_1_player_id', 'ff', 1);
     credit('forced_fumble_player_2_player_id', 'ff', 1);
-    // big plays: the highest-valued thing each defender did on this play, once
-    const V = BIG_PLAYS.values;
-    const best = new Map<string, number>();
-    const big = (cols: string[], v: number): void => {
-      for (const c of cols) {
-        const id = r.str(row, c);
-        if (id) best.set(id, Math.max(best.get(id) ?? 0, v));
-      }
-    };
-    big(['sack_player_id'], V.sack);
-    big(['half_sack_1_player_id', 'half_sack_2_player_id'], V.sack / 2);
-    big(['interception_player_id'], V.interception);
-    big(['forced_fumble_player_1_player_id', 'forced_fumble_player_2_player_id'], V.forcedFumble);
-    big(['tackle_for_loss_1_player_id', 'tackle_for_loss_2_player_id'], V.tackleForLoss);
-    big(['pass_defense_1_player_id', 'pass_defense_2_player_id'], V.passDefensed);
-    big(['qb_hit_1_player_id', 'qb_hit_2_player_id'], V.qbHit);
-    for (const [id, v] of best) add(pg(id, g, def), 'big', v);
+    // big plays: the EPA the play took from the offense, split evenly among the defenders who made one on it
+    const makers = new Set(BIG_PLAYS.columns.map((c) => r.str(row, c)).filter(Boolean));
+    if (makers.size && epa < 0) for (const id of makers) add(pg(id, g, def), 'big', -epa / makers.size);
   }
   const round4 = (x: number): number => Math.round(x * 1e4) / 1e4;
   const teamGames = [...cells.values()].map((c) => ({ ...c, passEpa: round4(c.passEpa), rushEpa: round4(c.rushEpa), covEpa: round4(c.covEpa) }));
