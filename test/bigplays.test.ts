@@ -51,3 +51,15 @@ describe('big plays', () => {
     }
   });
 });
+
+describe('big play values', () => {
+  it('takeaways (interceptions, forced fumbles) are worth more than sacks and tackles for loss, which are worth more than breakups and hits', () => {
+    const V = BIG_PLAYS.values;
+    expect(Math.min(V.interception, V.forcedFumble)).toBeGreaterThan(Math.max(V.sack, V.tackleForLoss));
+    expect(Math.min(V.sack, V.tackleForLoss)).toBeGreaterThan(Math.max(V.passDefensed, V.qbHit));
+  });
+
+  it('a strip sack counts as the forced fumble', () => {
+    expect(bigOf([play({ sack: '1', sack_player_id: 'edge', forced_fumble_player_1_player_id: 'edge' })])).toEqual({ edge: BIG_PLAYS.values.forcedFumble });
+  });
+});

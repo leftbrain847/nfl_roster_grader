@@ -56,7 +56,7 @@ Everything tunable is in `src/model/config.ts`.
     | CB | big plays/100 35, yards/target allowed 25, rating allowed 20, comp % allowed 10 (all low), missed tackle rate 10 (low) | 30 defense snaps |
     | S | big plays/100 35, yards/target allowed 20, rating allowed 15 (low), tackles/100 15, missed tackle rate 15 (low) | 30 defense snaps |
 
-    *Big plays* count the same for every defender, at the same weight in every group: a sack, interception, forced fumble or tackle for loss is 1, a pass defensed or QB hit 0.5. Each play credits a player once, with the highest of what he did on it (a sack is also a QB hit and usually a TFL in the data; an interception is also a pass defensed). Values in `BIG_PLAYS`, `config.ts`.
+    *Big plays* count the same for every defender, at the same weight in every group: an interception or forced fumble is 2, a sack or tackle for loss 1, a pass defensed or QB hit 0.5. Each play credits a player once, with the highest of what he did on it (a sack is also a QB hit and usually a TFL in the data; an interception is also a pass defensed). Values in `BIG_PLAYS`, `config.ts`.
 
     Kickers, punters and long snappers aren't ranked, and offensive linemen aren't ranked individually: open data has no per-player stat good enough. The line is graded by team instead (below).
 4. **Offensive line** (`line.ts`). Team-level grades, not opponent-adjusted: **pass protection** = QB pressures (PFR) per dropback (play-by-play), counting only the team-games PFR covers; **run blocking** = rushing yards before contact per carry (PFR). Both also reflect the QB, backs and scheme, and the page says so. Grade and rank as for units. Shown on each team sheet and under Players → OL.

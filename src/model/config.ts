@@ -247,7 +247,8 @@ export interface BigPlaysConfig {
 }
 
 export const BIG_PLAYS: BigPlaysConfig = {
-  values: { sack: 1, interception: 1, forcedFumble: 1, tackleForLoss: 1, passDefensed: 0.5, qbHit: 0.5 },
+  // takeaways count double: an interception or forced fumble changes possession; a sack or TFL loses yards
+  values: { sack: 1, interception: 2, forcedFumble: 2, tackleForLoss: 1, passDefensed: 0.5, qbHit: 0.5 },
   weight: 0.35,
 };
 
