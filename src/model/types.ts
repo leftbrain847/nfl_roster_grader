@@ -1,5 +1,5 @@
 /** Shapes shared by the refresh pipeline (pipeline/), the model (src/model/) and the page (src/client/). */
-import type { LineKey, PositionGroup, RankingMode, StatKey, UnitKey, Verdict } from './config.ts';
+import type { LineKey, LogKind, PositionGroup, RankingMode, StatKey, UnitKey, Verdict } from './config.ts';
 
 // ------------------------------------------------------------------ model inputs (compact, built from nflverse)
 
@@ -71,6 +71,30 @@ export interface RosterPlayer {
   status: string;
 }
 
+/** One player's stat line in one game, from the nflverse weekly player stats. */
+export interface PlayerWeek {
+  p: string;
+  name: string;
+  /** nflverse position (WR, CB, DT, ...). */
+  pos: string;
+  kind: LogKind;
+  t: string;
+  opp: string;
+  g: string;
+  wk: number;
+  /** One value per column of GAME_LOG.columns[kind], in that order. */
+  v: number[];
+}
+
+/** One season of a contract, in millions. null = not in the file. */
+export interface ContractSeason {
+  year: number;
+  base: number | null;
+  /** Cap number: what the player counts against his team's cap that season. */
+  cap: number | null;
+  cash: number | null;
+}
+
 export interface Contract {
   gsis: string;
   apyMillions: number;
@@ -78,6 +102,13 @@ export interface Contract {
   lastYear: number;
   /** This season's base salary, millions (null if the contract has no row for this season). */
   baseSalaryMillions: number | null;
+  /** The rest are optional so a last good copy saved before they existed still loads. */
+  yearSigned?: number;
+  years?: number | null;
+  valueMillions?: number | null;
+  guaranteedMillions?: number | null;
+  /** This season and later. */
+  seasons?: ContractSeason[];
 }
 
 export interface ModelInputs {
@@ -95,6 +126,7 @@ export interface ModelInputs {
   ngsRushing: NgsRushing[];
   roster: RosterPlayer[];
   contracts: Contract[];
+  playerWeeks: PlayerWeek[];
   /** gsis_id -> 0-100, only when the optional ratings source is enabled. */
   ratings?: Record<string, number>;
 }
@@ -212,6 +244,38 @@ export interface PlayerResult {
   contract: PlayerContract | null;
 }
 
+/** The contract as the player page shows it: the summary plus the deal's terms and year-by-year numbers. */
+export interface ContractDetail extends PlayerContract {
+  yearSigned: number | null;
+  years: number | null;
+  valueMillions: number | null;
+  guaranteedMillions: number | null;
+  seasons: ContractSeason[];
+}
+
+export interface GameLogRow {
+  wk: number;
+  team: string;
+  opp: string;
+  home: boolean;
+  /** "W 24-17", or empty when the schedule has no score. */
+  result: string;
+  /** Share of the team's offense (or defense) snaps, 0-100; null when snap counts don't have the game yet. */
+  snapPct: number | null;
+  v: number[];
+}
+
+/** One player's page: game log and contract. Every skill player and defender with a stat this season has one. */
+export interface PlayerProfile {
+  id: string;
+  name: string;
+  team: string;
+  pos: string;
+  kind: LogKind;
+  log: GameLogRow[];
+  contract: ContractDetail | null;
+}
+
 export interface ModelOutput {
   schemaVersion: 1;
   /** True only for the built-in sample (no real data yet): the page shows a banner. */
@@ -222,6 +286,7 @@ export interface ModelOutput {
   dataAsOf: string;
   teams: TeamResult[];
   players: PlayerResult[];
+  profiles: PlayerProfile[];
   sources: SourceStatus[];
   rankingModes: RankingMode[];
   ratingsCredit: string | null;

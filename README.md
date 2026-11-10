@@ -28,8 +28,9 @@ All from the [nflverse-data](https://github.com/nflverse/nflverse-data) GitHub r
 | Weekly rosters | `weekly_rosters/roster_weekly_<season>.csv` | current team, position, status, gsis/PFR id join |
 | Next Gen Stats | `nextgen_stats/ngs_{passing,receiving,rushing}.csv.gz` | CPOE, separation, YAC over expected, rush yards over expected |
 | PFR advanced | `pfr_advstats/advstats_week_{pass,rush,rec,def}_<season>.csv` | pressure-to-sack, yards after contact, broken tackles, drops, pressures, coverage, missed tackles |
-| Snap counts | `snap_counts/snap_counts_<season>.csv` | defense snaps (rates and qualifying minimums) |
+| Snap counts | `snap_counts/snap_counts_<season>.csv` | defense snaps (rates and qualifying minimums), snap share in game logs |
 | Contracts | `contracts/historical_contracts.parquet` | cap context on each player (APY, % of cap at signing, last year) and this season's base salary (for the base salary left). Only the parquet is current; the csv.gz stopped in 2022. Reading its year-by-year column takes ~1.3 GB, so `npm run refresh` raises Node's heap to 4 GB. |
+| Weekly player stats | `stats_player/stats_player_week_<season>.csv` | player pages: one game-log line per game (columns in `GAME_LOG`, `config.ts`) |
 
 **Freshness.** Each source's footer row shows its Last-Modified date and what it covers ("through week 8 + 1 of 14 week 9 games"). States: *Current* (every played game is in), *Behind* (some aren't; the note says whether that is the usual lag or overdue), *Kept last copy* (the download failed, the file didn't parse, or it held less than our last copy, so the last good copy in `data/sources/` is used), *Missing* (no copy ever; the page builds without those stats). Only schedules, play-by-play and rosters are required; without any copy of those the refresh fails and nothing is committed.
 

@@ -224,6 +224,7 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
     ngsRushing: get('ngs_rushing', []),
     roster: get('rosters', []),
     contracts: get('contracts', []),
+    playerWeeks: get('player_weeks', []),
     ratings,
   };
   const dataAsOf = [...used.values()].map((s) => s.lastModified ?? '').filter((d) => d && d <= opts.today).sort().pop() ?? opts.today;

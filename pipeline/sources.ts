@@ -9,7 +9,7 @@ export type SourceId =
   | 'schedules' | 'pbp' | 'rosters'
   | 'ngs_passing' | 'ngs_receiving' | 'ngs_rushing'
   | 'pfr_pass' | 'pfr_rush' | 'pfr_rec' | 'pfr_def'
-  | 'snaps' | 'contracts';
+  | 'snaps' | 'contracts' | 'player_weeks';
 
 export type CoverageKind = 'games' | 'weeks' | 'age';
 
@@ -42,6 +42,7 @@ export const SOURCES: SourceDef[] = [
   { id: 'snaps', label: 'Snap counts (PFR)', path: 'snap_counts/snap_counts_{season}.csv', coverage: 'games', lagDays: 3, required: false },
   // The contracts table (OverTheCap via nflverse) is only kept current as parquet; the old csv.gz stopped in 2022.
   { id: 'contracts', label: 'Contracts (OverTheCap)', path: 'contracts/historical_contracts.parquet', coverage: 'age', lagDays: 0, maxAgeDays: 30, required: false },
+  { id: 'player_weeks', label: 'Weekly player stats', path: 'stats_player/stats_player_week_{season}.csv', coverage: 'games', lagDays: 2, required: false },
 ];
 
 export const sourceUrl = (s: SourceDef, season: number): string => `${NFLVERSE_BASE}/${s.path.replace('{season}', String(season))}`;

@@ -6,7 +6,7 @@ import type { ModelInputs, RosterPlayer } from '../src/model/types.ts';
 
 const empty: ModelInputs = {
   season: 2026, games: [], teamGames: [], playerGames: [], pfrPass: [], pfrRush: [], pfrRec: [], pfrDef: [], snaps: [],
-  ngsPassing: [], ngsReceiving: [], ngsRushing: [], roster: [], contracts: [],
+  ngsPassing: [], ngsReceiving: [], ngsRushing: [], roster: [], contracts: [], playerWeeks: [],
 };
 const ol = (gsis: string, team: string, pfr: string, depth = 'T', status = 'ACT'): RosterPlayer => ({ gsis, pfr, name: gsis, team, depth, week: 9, status });
 

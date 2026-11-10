@@ -1,14 +1,15 @@
 /**
  * Roster Grader page. Reads the model output baked in at build time (no network), renders the league table, a team
- * sheet (unit bars, verdict, reason, buy targets) and position rankings. Text goes in as text, never HTML.
+ * sheet (unit bars, verdict, reason, buy targets), position rankings and a page per player (game log, contract). Text goes in as text, never HTML.
  */
 import data from '@roster-data';
 import {
-  ADJUST, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VERDICT,
+  ADJUST, GAME_LOG, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VERDICT,
   type LineKey, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
-import type { LineTarget, PlayerContract, PlayerResult, TeamResult } from '../model/types.ts';
+import { logTotals } from '../model/profiles.ts';
+import type { ContractDetail, LineTarget, PlayerContract, PlayerProfile, PlayerResult, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 type SortKey = 'team' | 'verdict' | 'odds' | UnitKey;
@@ -22,11 +23,15 @@ const state = {
   group: 'QB' as PositionGroup | 'OL',
   mode: 'production' as RankingMode,
   team: null as string | null,
+  /** The open player page, on top of the team sheet if both are open. */
+  player: null as string | null,
+  query: '',
   open: new Set<string>(),
 };
 
 const players = new Map(data.players.map((p) => [p.id, p]));
 const teams = new Map(data.teams.map((t) => [t.team, t]));
+const profiles = new Map((data.profiles ?? []).map((p) => [p.id, p]));
 const VERDICT_ORDER: Record<Verdict, number> = { buy: 0, 'stand pat': 1, sell: 2 };
 const pct = (x: number): string => {
   const p = Math.round(100 * x);
@@ -189,6 +194,7 @@ function playerCard(p: PlayerResult, opts: { showTeam: boolean; rank?: number })
     open ? el('div', { className: 'player-body' }, [
       statLine(p),
       el('p', { className: 'p-contract', text: contract }),
+      profiles.has(p.id) ? el('button', { className: 'more', text: 'Game log and contract', onClick: () => openPlayer(p.id) }) : null,
       el('p', { className: 'fine', text: 'Each stat: value, then percentile among qualified players at the position. Score = percentile of the weighted stat percentiles.' }),
     ]) : null,
   ]);
@@ -292,6 +298,121 @@ function closeTeam(): void {
   if (last) document.querySelector<HTMLElement>(`tr[data-team="${last}"]`)?.focus();
 }
 
+// ------------------------------------------------------------------ player page
+
+const money = (m: number | null, d = 1): string => (m === null ? '-' : `$${m.toFixed(d)}M`);
+
+function gameLog(p: PlayerProfile): HTMLElement {
+  const cols = GAME_LOG.columns[p.kind];
+  const head = ['Wk', 'Opp', 'Result', 'Snap%', ...cols.map((c) => c.label)];
+  const titles = ['Week', 'Opponent (@ = away)', 'Result', 'Share of the team\'s snaps on his side of the ball', ...cols.map((c) => c.title)];
+  const cells = (v: number[]): HTMLElement[] => cols.map((c, i) => el('td', { className: 'num', text: (v[i] ?? 0).toFixed(c.decimals) }));
+  const traded = new Set(p.log.map((r) => r.team)).size > 1;
+  const rows = p.log.map((r) => el('tr', {}, [
+    el('th', { className: 'num', attrs: { scope: 'row' }, text: String(r.wk) }),
+    el('td', { text: `${traded ? `${r.team} ` : ''}${r.home ? '' : '@'}${r.opp}` }),
+    el('td', { className: 'num', text: r.result || '-' }),
+    el('td', { className: 'num', text: r.snapPct === null ? '-' : String(r.snapPct) }),
+    ...cells(r.v),
+  ]));
+  return el('div', { className: 'table-wrap' }, [
+    el('table', { className: 'log' }, [
+      el('thead', {}, [el('tr', {}, head.map((h, i) => el('th', { text: h, attrs: { scope: 'col', title: titles[i] ?? h } })))]),
+      el('tbody', {}, rows),
+      el('tfoot', {}, [el('tr', {}, [
+        el('th', { attrs: { scope: 'row', colspan: '4' }, text: `Total · ${p.log.length} games` }),
+        ...cells(logTotals(p.log, cols.map((c) => c.decimals))),
+      ])]),
+    ]),
+  ]);
+}
+
+function contractBox(c: ContractDetail | null): HTMLElement {
+  if (!c) return el('p', { className: 'fine', text: 'No contract on file.' });
+  const terms = [
+    c.years !== null && c.valueMillions !== null ? `${c.years} ${c.years === 1 ? 'year' : 'years'}, ${money(c.valueMillions)}` : null,
+    `${money(c.apyMillions)} per year`,
+    c.guaranteedMillions !== null ? `${money(c.guaranteedMillions)} guaranteed` : null,
+    c.yearSigned !== null ? `signed ${c.yearSigned}` : null,
+    `through ${c.lastYear}`,
+  ].filter((x): x is string => !!x).join(' · ');
+  return el('div', { className: 'contract' }, [
+    el('p', { className: 'terms', text: terms }),
+    c.seasons.length ? el('div', { className: 'table-wrap' }, [
+      el('table', { className: 'log' }, [
+        el('thead', {}, [el('tr', {}, ['Year', 'Base salary', 'Cap hit', 'Cash paid'].map((h) => el('th', { text: h, attrs: { scope: 'col' } })))]),
+        el('tbody', {}, c.seasons.map((s) => el('tr', {}, [
+          el('th', { className: 'num', attrs: { scope: 'row' }, text: String(s.year) }),
+          el('td', { className: 'num', text: money(s.base, 2) }),
+          el('td', { className: 'num', text: money(s.cap, 2) }),
+          el('td', { className: 'num', text: money(s.cash, 2) }),
+        ]))),
+      ]),
+    ]) : null,
+    c.baseSalaryLeftMillions !== null ? el('p', { className: 'fine', text: `Base salary left this season ≈ ${money(c.baseSalaryLeftMillions, 2)}: what a team trading for him now takes on.` }) : null,
+    el('p', { className: 'fine', text: 'Cap hit = what he counts against his team\'s cap that year. Contract figures from OverTheCap via nflverse.' }),
+  ]);
+}
+
+function playerSheet(p: PlayerProfile): HTMLElement {
+  const ranked = players.get(p.id);
+  return el('div', { className: 'sheet-backdrop', onClick: (e) => { if (e.target === e.currentTarget) closePlayer(); } }, [
+    el('article', { className: 'sheet player-sheet', attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': `${p.name} game log and contract` } }, [
+      el('header', { className: 'sheet-head' }, [
+        el('div', {}, [
+          el('p', { className: 'eyebrow', text: `${p.team} ${teams.get(p.team)?.name ?? ''} · ${p.pos}` }),
+          el('h2', { text: p.name }),
+        ]),
+        el('button', { className: 'close', text: 'Close', onClick: closePlayer }),
+      ]),
+      ranked ? el('section', { className: 'shop' }, [
+        el('h3', { text: `#${ranked.rank} of ${ranked.qualifiedAtPosition} ${POSITIONS[ranked.group].label}s` }),
+        statLine(ranked),
+        el('p', { className: 'fine', text: 'Each stat: value, then percentile among qualified players at the position.' }),
+      ]) : null,
+      el('section', { className: 'shop' }, [el('h3', { text: 'Game log' }), gameLog(p)]),
+      el('section', { className: 'shop' }, [el('h3', { text: 'Contract' }), contractBox(p.contract)]),
+    ]),
+  ]);
+}
+
+function openPlayer(id: string): void {
+  if (!profiles.has(id)) return;
+  state.player = id;
+  setHash(`player-${id}`);
+  draw();
+  document.querySelector<HTMLElement>('.player-sheet .close')?.focus();
+}
+
+function closePlayer(): void {
+  state.player = null;
+  setHash(state.team ? `team-${state.team.toLowerCase()}` : '');
+  draw();
+}
+
+/** Find any player with a page, ranked or not. Typing redraws only the result list, so the box keeps focus. */
+function playerSearch(): HTMLElement {
+  const results = el('ul', { className: 'players' });
+  const fill = (): void => {
+    const q = state.query.trim().toLowerCase();
+    const hits = q.length < GAME_LOG.searchMinChars ? [] : (data.profiles ?? []).filter((p) => p.name.toLowerCase().includes(q)).slice(0, GAME_LOG.searchResults);
+    results.replaceChildren(...hits.map((p) => el('li', { className: 'player' }, [
+      el('button', { className: 'player-head', onClick: () => openPlayer(p.id) }, [
+        el('span', { className: 'p-main' }, [
+          el('span', { className: 'p-name', text: p.name }),
+          el('span', { className: 'p-meta', text: `${p.team} · ${p.pos} · ${p.log.length} games` }),
+        ]),
+      ]),
+    ])));
+    if (q.length >= GAME_LOG.searchMinChars && !hits.length) results.replaceChildren(el('li', { className: 'fine', text: 'No player found.' }));
+  };
+  const input = el('input', { className: 'search', attrs: { type: 'search', placeholder: 'Find a player: game log and contract', 'aria-label': 'Find a player', autocomplete: 'off', enterkeyhint: 'search' } });
+  input.value = state.query;
+  input.addEventListener('input', () => { state.query = input.value; fill(); });
+  fill();
+  return el('div', { className: 'finder' }, [input, results]);
+}
+
 // ------------------------------------------------------------------ player rankings
 
 function lineAvg(t: TeamResult): number {
@@ -312,6 +433,7 @@ function playersView(): HTMLElement {
     })))
     : null;
   if (state.group === 'OL') return el('section', { className: 'rankings' }, [
+    profiles.size ? playerSearch() : null,
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, groups),
     el('h2', { className: 'pos-title', text: 'Offensive lines' }),
     el('p', { className: 'fine', text: `Graded by team: ${LINE.passPro.label.toLowerCase()} from ${LINE.passPro.stat}, ${LINE.runBlock.label.toLowerCase()} from ${LINE.runBlock.stat}. Sorted by the average of the two grades. Tap a team.` }),
@@ -337,6 +459,7 @@ function playersView(): HTMLElement {
   const weights = Object.entries(pos.weights).map(([k, w]) => `${STATS[k as keyof typeof STATS].label} ${Math.round(100 * (w ?? 0))}%`).join(' · ');
   const minWord = { dropbacks: 'dropbacks', carries: 'carries', targets: 'targets', defenseSnaps: 'defense snaps' }[pos.minimum.per];
   return el('section', { className: 'rankings' }, [
+    profiles.size ? playerSearch() : null,
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, groups),
     modes,
     el('h2', { className: 'pos-title', text: `${pos.label}s` }),
@@ -361,9 +484,10 @@ function footer(): HTMLElement {
     el('p', { text: `Verdict: playoff odds from ${PLAYOFF_SIM.simulations.toLocaleString('en-US')} simulated finishes (team strength blends adjusted EPA with point differential; standings ties broken at random, not by NFL tiebreakers). Odds ${pct(VERDICT.contenderOdds)}+ buy for a unit graded under ${VERDICT.holeGrade}; ${pct(VERDICT.sellerOdds)} or less sell; in between, the schedule left decides.` }),
     el('p', { text: 'Player scores: percentile within the position of a weighted mix of stat percentiles, among players over a per-game volume minimum. Offensive linemen are graded by team instead (Players, then OL); specialists are not ranked. Open data has no good per-player stat for either.' }),
     el('p', { text: 'Offensive line: pass protection = QB pressures (PFR) per dropback; run blocking = rushing yards before contact per carry (PFR). When a buyer\'s weakest unit is pass O or rush O, it shops for the weaker half: the line, or the pass catchers (EPA per non-sack attempt) or backs (yards after contact per carry).' }),
+    el('p', { text: 'Player pages (Players, then search, or "Game log and contract" on a ranked player): one line per game from the nflverse weekly stats, for every quarterback, back, receiver, tight end and defender with a stat this season. Snap% is his share of the team\'s offense or defense snaps. PPR = fantasy points with a point per catch. Contract years show base salary, cap hit and cash paid.' }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
-    el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
+    el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
     data.ratingsCredit ? el('p', { text: `Ratings: ${data.ratingsCredit}` }) : null,
   ]);
 }
@@ -372,6 +496,7 @@ function footer(): HTMLElement {
 
 function draw(): void {
   const team = state.team ? teams.get(state.team) : undefined;
+  const profile = state.player ? profiles.get(state.player) : undefined;
   const tabs = (['league', 'players'] as const).map((v) => el('button', {
     className: `tab${state.view === v ? ' on' : ''}`,
     text: v === 'league' ? 'League' : 'Players',
@@ -389,10 +514,20 @@ function draw(): void {
     data.sample ? el('p', { className: 'banner', text: 'Sample data (weeks 1-2 of 2026): the nightly refresh has not run yet.' }) : null,
     el('main', {}, [state.view === 'league' ? leagueView() : playersView(), footer()]),
     team ? teamSheet(team) : null,
+    profile ? playerSheet(profile) : null,
   ]));
 }
 
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.team) closeTeam(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (state.player) closePlayer();
+  else if (state.team) closeTeam();
+});
 const fromHash = /^#team-([a-z]{2,3})$/.exec(location.hash)?.[1]?.toUpperCase();
 if (fromHash && teams.has(fromHash)) state.team = fromHash;
+const playerHash = /^#player-([0-9-]{4,12})$/.exec(location.hash)?.[1];
+if (playerHash && profiles.has(playerHash)) {
+  state.player = playerHash;
+  state.view = 'players';
+}
 draw();

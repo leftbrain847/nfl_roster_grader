@@ -3,10 +3,10 @@
  * what it covers (game ids or latest week), which decides fresh / lagging / kept.
  */
 import { gunzipSync } from 'node:zlib';
-import { LINE_TARGETS, PLAY_FILTER } from '../src/model/config.ts';
+import { GAME_LOG, LINE_TARGETS, PLAY_FILTER } from '../src/model/config.ts';
 import type {
-  Contract, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
-  RosterPlayer, SnapRow, TeamGame,
+  Contract, ContractSeason, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
+  PlayerWeek, RosterPlayer, SnapRow, TeamGame,
 } from '../src/model/types.ts';
 import { parseCsv, reader, type Table } from './csv.ts';
 import type { SourceId } from './sources.ts';
@@ -285,6 +285,55 @@ export const extractSnaps = (t: Table, s: number): Extracted<SnapRow[]> =>
     ...(LINE_TARGETS.depth.includes(r.str(row, 'position')) ? { n: r.str(row, 'player') } : {}),
   }));
 
+/** Weekly player stats -> one game-log line per skill player and defender (columns set in GAME_LOG). */
+export function extractPlayerWeeks(t: Table, season: number): Extracted<PlayerWeek[]> {
+  const r = reader(t);
+  const stats = [...new Set(Object.values(GAME_LOG.columns).flat().flatMap((c) => c.from))];
+  r.require('player_id', 'player_display_name', 'position', 'position_group', 'season', 'week', 'season_type', 'game_id', 'team', 'opponent_team', ...stats);
+  const games = new Set<string>();
+  const data: PlayerWeek[] = [];
+  for (const row of t.rows) {
+    if (r.num(row, 'season') !== season || !isReg(r.str(row, 'season_type'))) continue;
+    const g = r.str(row, 'game_id');
+    if (g) games.add(g);
+    const kind = GAME_LOG.groupKind[r.str(row, 'position_group')];
+    const p = r.str(row, 'player_id');
+    if (!kind || !p || !g) continue;
+    data.push({
+      p,
+      name: r.str(row, 'player_display_name'),
+      pos: r.str(row, 'position'),
+      kind,
+      t: r.str(row, 'team'),
+      opp: r.str(row, 'opponent_team'),
+      g,
+      wk: r.num(row, 'week'),
+      v: GAME_LOG.columns[kind].map((c) => {
+        const k = 10 ** c.decimals;
+        return Math.round(c.from.reduce((s, col) => s + r.num(row, col), 0) * k) / k;
+      }),
+    });
+  }
+  return { data, games: [...games] };
+}
+
+const millions = (v: unknown): number | null => {
+  const x = typeof v === 'bigint' ? Number(v) : typeof v === 'number' ? v : typeof v === 'string' && v !== '' ? Number(v) : NaN;
+  return Number.isFinite(x) ? Math.round(x * 1000) / 1000 : null;
+};
+
+/** A contract's year-by-year rows, this season onward. The file's "Total" row and earlier years are dropped. */
+export function contractSeasons(history: unknown, season: number): ContractSeason[] {
+  if (!Array.isArray(history)) return [];
+  const out: ContractSeason[] = [];
+  for (const h of history as Record<string, unknown>[]) {
+    const year = Number(h?.year);
+    if (!Number.isInteger(year) || year < season) continue;
+    out.push({ year, base: millions(h.base_salary), cap: millions(h.cap_number), cash: millions(h.cash_paid) });
+  }
+  return out.sort((a, b) => a.year - b.year);
+}
+
 /**
  * Contracts parquet -> the current contract per player (active, latest signed), with this season's base salary from
  * its year-by-year `season_history`. hyparquet is loaded only here. Reading `season_history` takes ~1.3 GB of memory
@@ -299,8 +348,9 @@ export async function extractContracts(buf: Uint8Array, season: number): Promise
   const flat = ['is_active', 'year_signed', 'years', 'apy', 'apy_cap_pct', 'gsis_id'];
   const missing = flat.filter((c) => !names.has(c));
   if (missing.length) throw new Error(`missing columns: ${missing.join(', ')}`);
-  const history = names.has('season_history');
-  const rows = (await parquetReadObjects({ file: ab, columns: history ? [...flat, 'season_history'] : flat })) as Record<string, unknown>[];
+  // total value, guarantee and the yearly rows are extras: a file without them still gives the core terms
+  const extra = ['value', 'guaranteed', 'season_history'].filter((c) => names.has(c));
+  const rows = (await parquetReadObjects({ file: ab, columns: [...flat, ...extra] })) as Record<string, unknown>[];
   const best = new Map<string, { signed: number; c: Contract }>();
   const n = (v: unknown): number => (typeof v === 'bigint' ? Number(v) : typeof v === 'number' ? v : typeof v === 'string' && v !== '' ? Number(v) : NaN);
   for (const row of rows) {
@@ -316,14 +366,22 @@ export async function extractContracts(buf: Uint8Array, season: number): Promise
       ? (row.season_history as Record<string, unknown>[]).find((h) => n(h?.year) === season)
       : undefined;
     const base = year ? n(year.base_salary) : NaN;
+    const seasons = contractSeasons(row.season_history, season);
+    // an extension keeps its old years: the deal runs to the last year listed, not just signed + new years
+    const lastYear = Math.max(signed + (Number.isFinite(years) ? years : 1) - 1, seasons[seasons.length - 1]?.year ?? 0);
     best.set(gsis, {
       signed,
       c: {
         gsis,
         apyMillions: Math.round(apy * 100) / 100,
         capPct: Number.isFinite(capPct) ? Math.round(capPct * 1000) / 1000 : 0,
-        lastYear: signed + (Number.isFinite(years) ? years : 1) - 1,
+        lastYear,
         baseSalaryMillions: Number.isFinite(base) ? Math.round(base * 1000) / 1000 : null,
+        yearSigned: signed,
+        years: Number.isFinite(years) ? years : null,
+        valueMillions: millions(row.value),
+        guaranteedMillions: millions(row.guaranteed),
+        seasons,
       },
     });
   }
@@ -346,5 +404,6 @@ export async function extract(id: SourceId, buf: Uint8Array, name: string, seaso
     case 'pfr_rec': return extractPfrRec(t, season);
     case 'pfr_def': return extractPfrDef(t, season);
     case 'snaps': return extractSnaps(t, season);
+    case 'player_weeks': return extractPlayerWeeks(t, season);
   }
 }

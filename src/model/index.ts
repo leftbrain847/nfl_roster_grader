@@ -8,6 +8,7 @@ import { gradeLines, lineRaw, lineStarters, lineTargets } from './line.ts';
 import { gradeUnits, weakestUnit } from './grades.ts';
 import { divisionOf, records, recordText, scheduleLeft, simulatePlayoffs, strengths } from './playoffs.ts';
 import { rankPlayers } from './players.ts';
+import { buildProfiles } from './profiles.ts';
 import { assertRatingsAllowed } from './ratings.ts';
 import { round } from './stats.ts';
 import { decideVerdict } from './verdict.ts';
@@ -128,6 +129,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     dataAsOf: opts.dataAsOf,
     teams: results,
     players,
+    profiles: buildProfiles(inp, throughWeek),
     sources: opts.sources,
     rankingModes: modes,
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,
