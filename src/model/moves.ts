@@ -120,13 +120,13 @@ export function buildMoves(inp: ModelInputs, cfg: MovesConfig = MOVES): Move[] {
         pos: p?.pos ?? '', group: t.name ? positionGroup(p?.pos ?? '', cfg) : cfg.other, team: t.received, from: t.gave,
         detail: `Traded from ${t.gave} to ${t.received}${back.length ? ` for ${back.join(', ')}` : ''}`,
         tradeId: t.id,
-        ...(t.name ? {} : { pick: true, ...(t.pickSeason && t.pickRound ? { pickOf: { season: t.pickSeason, round: t.pickRound, number: t.pickNumber ?? null } } : {}) }),
+        ...(t.name ? {} : { pick: true, ...(t.pickSeason && t.pickRound ? { pickOf: { season: t.pickSeason, round: t.pickRound, number: t.pickNumber ?? null, ...(t.conditional ? { conditional: true } : {}) } } : {}) }),
       });
     }
   }
 
   for (const d of inp.draft ?? []) {
-    const day = cfg.draftDay[d.season] ?? `${d.season}-04-30`;
+    const day = cfg.draftDay[d.season] ?? `${d.season}-${cfg.draftDayFallback}`;
     out.push({
       date: day, when: `${d.season} draft`, kind: 'draft', id: d.gsis, name: d.name, pos: d.pos, group: positionGroup(d.pos, cfg),
       team: d.team, from: null, detail: `Round ${d.round}, pick ${d.pick} overall`,

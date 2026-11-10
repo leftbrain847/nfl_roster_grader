@@ -254,6 +254,7 @@ export function extractTrades(t: Table, season: number): Extracted<TradeRow[]> {
       pickSeason: r.opt(row, 'pick_season'),
       pickRound: r.opt(row, 'pick_round'),
       pickNumber: t.col('pick_number') >= 0 ? r.opt(row, 'pick_number') : null,
+      conditional: t.col('conditional') >= 0 && r.opt(row, 'conditional') === 1,
     });
   }
   return { data };

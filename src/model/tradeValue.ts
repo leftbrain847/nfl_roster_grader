@@ -7,7 +7,7 @@
  *   (up to MOVE_GRADE.maxYears), the same surplus idea the pick chart measures.
  * Each team's trade grade comes from what it got minus what it gave. Unpriced assets are named, not guessed.
  */
-import { MOVE_GRADE, MOVES, PICK_VALUE, type PickValueConfig } from './config.ts';
+import { MOVE_GRADE, MOVES, PICK_VALUE, type MoveGradeConfig, type MovesConfig, type PickValueConfig } from './config.ts';
 import { PICK_SURPLUS_PCT_OF_CAP } from './pickChart.ts';
 import { round } from './stats.ts';
 import type { Contract, Move, MoveGrade, PlayerValue } from './types.ts';
@@ -16,16 +16,19 @@ import { wordFor } from './moveGrades.ts';
 const ROUND_NAMES = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th'];
 const roundName = (r: number): string => ROUND_NAMES[r - 1] ?? `round ${r}`;
 
-/** The next draft as of a date: this year's if its draft day hasn't come, else next year's. */
-export function nextDraft(date: string, draftDay: Record<number, string> = MOVES.draftDay): number {
+const addDays = (iso: string, n: number): string => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+
+/** The next draft as of a date: this year's until it's over (its first day + draftDays), else next year's. */
+export function nextDraft(date: string, cfg: MovesConfig = MOVES): number {
   const y = Number(date.slice(0, 4));
-  return date < (draftDay[y] ?? `${y}-04-30`) ? y : y + 1;
+  const first = cfg.draftDay[y] ?? `${y}-${cfg.draftDayFallback}`;
+  return date < addDays(first, cfg.draftDays) ? y : y + 1;
 }
 
 export interface PickPrice { millions: number; slot: number; draftsAway: number; note: string }
 
 /** Pure: a pick's value as of the trade date. */
-export function pickPrice(pick: { season: number; round: number; number: number | null }, tradeDate: string, cfg: PickValueConfig = PICK_VALUE): PickPrice {
+export function pickPrice(pick: { season: number; round: number; number: number | null; conditional?: boolean }, tradeDate: string, cfg: PickValueConfig = PICK_VALUE): PickPrice {
   const chart = PICK_SURPLUS_PCT_OF_CAP;
   const away = Math.max(0, pick.season - nextDraft(tradeDate));
   const known = pick.number !== null && away === 0;
@@ -39,7 +42,7 @@ export function pickPrice(pick: { season: number; round: number; number: number 
     : away === 0 ? `valued as pick ${slot}, the middle of the round`
     : cfg.future.rule === 'round' ? `valued as pick ${slot}: ${away} draft${away > 1 ? 's' : ''} away, one round later per draft`
     : `valued as pick ${slot}, less ${Math.round(cfg.future.rate * 100)}% per draft away`;
-  return { millions, slot, draftsAway: away, note: `${label} (${how})` };
+  return { millions, slot, draftsAway: away, note: `${label} (${how}${pick.conditional ? '; conditional, valued in full' : ''})` };
 }
 
 /** Pure: a player's surplus over the seasons left, millions (null when his production or pay isn't known). */
@@ -54,7 +57,7 @@ export function playerSurplus(id: string, season: number, values: Map<string, Pl
 const money = (m: number): string => `${m < 0 ? '-' : ''}$${Math.abs(round(m, 1))}M`;
 
 /** Each trades-file trade: every team's net value, attached to each of the trade's rows. */
-export function tradeValues(moves: Move[], season: number, values: Map<string, PlayerValue>, contracts: Map<string, Contract>, cfg: PickValueConfig = PICK_VALUE): Move[] {
+export function tradeValues(moves: Move[], season: number, values: Map<string, PlayerValue>, contracts: Map<string, Contract>, cfg: PickValueConfig = PICK_VALUE, gradeCfg: MoveGradeConfig = MOVE_GRADE): Move[] {
   const byTrade = new Map<string, Move[]>();
   for (const m of moves) if (m.tradeId) byTrade.set(m.tradeId, [...(byTrade.get(m.tradeId) ?? []), m]);
   const out = new Map<string, MoveGrade[]>();
@@ -69,10 +72,12 @@ export function tradeValues(moves: Move[], season: number, values: Map<string, P
       const gave = priced.filter((x) => x.m.from === team);
       const sum = (xs: typeof priced): number => xs.reduce((s, x) => s + (x.millions ?? 0), 0);
       const unpriced = [...got, ...gave].filter((x) => x.millions === null).map((x) => x.m.name);
+      // an unpriced asset would count as $0 and skew the grade: no grade then, just what is priced
+      if (unpriced.length) return { team, score: null, word: null, reason: `Whole trade not graded: no value for ${unpriced.join(', ')} (priced: in ${money(sum(got))}, out ${money(sum(gave))})` };
       const net = sum(got) - sum(gave);
       const score = round(50 + 50 * Math.tanh(net / cfg.scaleMillions), 0);
-      const reason = `Whole trade: value in ${money(sum(got))}, out ${money(sum(gave))} (net ${net >= 0 ? '+' : ''}${money(net)})${unpriced.length ? ` · not priced: ${unpriced.join(', ')}` : ''}`;
-      return { team, score, word: wordFor(score), reason };
+      const reason = `Whole trade: value in ${money(sum(got))}, out ${money(sum(gave))} (net ${net >= 0 ? '+' : ''}${money(net)})`;
+      return { team, score, word: wordFor(score, gradeCfg), reason };
     }));
   }
   return moves.map((m) => (m.tradeId && out.has(m.tradeId) ? { ...m, tradeValue: out.get(m.tradeId) } : m));

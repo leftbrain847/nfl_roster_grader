@@ -126,5 +126,5 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
     } else if (cfg.departs.includes(m.kind)) grades.push(one(m, m.team, false));   // detail reads "Released by <team>"
     return grades.length ? { ...m, grades } : m;
   });
-  return tradeValues(graded, inp.season, values, contracts);
+  return tradeValues(graded, inp.season, values, contracts, undefined, cfg);
 }

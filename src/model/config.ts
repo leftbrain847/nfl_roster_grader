@@ -578,6 +578,10 @@ export interface MovesConfig {
   teamCodes: Record<string, string>;
   /** The first day of each season's draft, for sorting draft picks by date (the draft file has no dates). */
   draftDay: Record<number, string>;
+  /** Month-day used for a season missing from draftDay. */
+  draftDayFallback: string;
+  /** The draft runs this many days from its first day: a pick for that draft traded during it is still a current pick. */
+  draftDays: number;
   /**
    * Weekly roster status codes: ACT active, INA game-day inactive, RES reserve (injured reserve and similar),
    * DEV practice squad, CUT released, RET retired. `traded` lists codes that mean the player was traded (none
@@ -602,6 +606,8 @@ export const MOVES: MovesConfig = {
   other: 'Other',
   teamCodes: { GNB: 'GB', KAN: 'KC', LAR: 'LA', LVR: 'LV', NOR: 'NO', NWE: 'NE', SFO: 'SF', TAM: 'TB', SDG: 'LAC', STL: 'LA', OAK: 'LV' },
   draftDay: { 2025: '2025-04-24', 2026: '2026-04-23' },
+  draftDayFallback: '04-30',
+  draftDays: 3,
   // TRD, TRT and TRC show up a handful of times a season with no documented meaning, so they mark no trade
   status: { active: ['ACT', 'INA'], reserve: 'RES', practice: 'DEV', released: 'CUT', retired: 'RET', traded: [] },
   labels: {
@@ -686,7 +692,7 @@ export const PICK_VALUE: PickValueConfig = {
   unknownSlot: 16,
   future: { rule: 'round', rate: 0.1 },
   scaleMillions: 25,
-  credit: 'Pick values: Ben Baldwin, NFL Draft Value Chart, Open Source Football (CC BY-NC 4.0).',
+  credit: 'Draft pick values: “NFL Draft Value Chart” by Ben Baldwin, Open Source Football (opensourcefootball.com/posts/2023-02-23-nfl-draft-value-chart), licensed CC BY-NC 4.0 (creativecommons.org/licenses/by-nc/4.0). Changed: its surplus (% of cap per rookie season) is converted to dollars at the 2026 cap over 4 seasons, an unknown slot is valued mid-round, and a future pick one round later per draft away.',
 };
 
 export interface BuyConfig {
