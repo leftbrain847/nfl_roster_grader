@@ -59,6 +59,10 @@ describe('move grades', () => {
     expect(gradeMoves([move({ kind: 'trade', id: null })], base)[0]?.grades?.[0]?.reason).toBe('Player not matched to a roster');
   });
 
+  it('a trades-file trade gets no per-asset grades (it is judged as a whole)', () => {
+    expect(gradeMoves([move({ kind: 'trade', tradeId: 't1' })], base)[0]?.grades).toBeUndefined();
+  });
+
   it('pay unknown and a team with no unit grades still grade on what is there', () => {
     const [m] = gradeMoves([move({ kind: 'signed', id: 'p3', team: 'NYG', from: null })], { ...base, players: [...base.players, player('p3', 60)] });
     expect(m?.grades?.[0]).toMatchObject({ team: 'NYG', score: 60, reason: '60th pct producer · pay unknown' });

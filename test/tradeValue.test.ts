@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PICK_VALUE } from '../src/model/config.ts';
 import { PICK_SURPLUS_PCT_OF_CAP } from '../src/model/pickChart.ts';
-import { nextDraft, pickPrice, playerSurplus, tradeValues } from '../src/model/tradeValue.ts';
+import { nextDraft, pickPrice, playerSurplus, priceAsset, tradeValues } from '../src/model/tradeValue.ts';
 import type { Contract, Move, PlayerValue } from '../src/model/types.ts';
 
 const dollars = (pick: number): number => Math.round((PICK_SURPLUS_PCT_OF_CAP[pick - 1] as number) / 100 * PICK_VALUE.capMillions * PICK_VALUE.rookieYears * 10) / 10;
@@ -66,6 +66,17 @@ describe('whole-trade value', () => {
     const [jax, phi] = tradeValues([row({ id: 'p1', name: 'Star', team: 'JAX', from: 'PHI' }), pick1], 2026, values, contracts)[0]?.trade?.sides ?? [];
     expect(jax?.received).toEqual([{ name: 'Star', id: 'p1', pos: '', millions: 14, how: '90th pct IDL producer, worth $18M/yr (what the 90th pct IDL is paid) − cap hits $10M + $12M, over 2 seasons' }]);
     expect(phi?.received[0]?.how).toBe(`2027 1st (valued as pick 16, the middle of the round): Baldwin chart surplus ${PICK_SURPLUS_PCT_OF_CAP[15]}% of the cap per season × $301.2M cap × 4 rookie seasons`);
+  });
+
+  it('rate rule: the text shows the discount it applies', () => {
+    const a = priceAsset(row({ name: 'p', pick: true, pickOf: { season: 2028, round: 1, number: null } }), 2026, values, contracts, { ...PICK_VALUE, future: { rule: 'rate', rate: 0.1 } });
+    expect(a.how).toMatch(/× 4 rookie seasons × 0\.9$/);
+    expect(a.millions).toBe(Math.round(dollars(16) * 0.9 * 10) / 10);
+  });
+
+  it('unpriced branches say why', () => {
+    expect(priceAsset(row({ name: 'p', pick: true }), 2026, values, contracts).how).toBe('Pick not identified in the trades file');
+    expect(priceAsset(row({ id: 'x', name: 'Backup', group: 'QB' }), 2026, values, contracts).how).toBe('No value: not enough snaps this season to be ranked');
   });
 
   it('an asset with no value (a lineman, an unranked backup): no grade for anyone in the trade, and it says why', () => {

@@ -9,7 +9,7 @@
  */
 import { MOVE_GRADE, MOVES, PICK_VALUE, type MoveGradeConfig, type MovesConfig, type PickValueConfig } from './config.ts';
 import { PICK_SURPLUS_PCT_OF_CAP } from './pickChart.ts';
-import { round } from './stats.ts';
+import { ordinal, round } from './stats.ts';
 import type { Contract, Move, PlayerValue, TradeAsset, TradeCard, TradeSide } from './types.ts';
 import { wordFor } from './moveGrades.ts';
 
@@ -25,7 +25,7 @@ export function nextDraft(date: string, cfg: MovesConfig = MOVES): number {
   return date < addDays(first, cfg.draftDays) ? y : y + 1;
 }
 
-export interface PickPrice { millions: number; slot: number; draftsAway: number; pct: number; note: string }
+export interface PickPrice { millions: number; slot: number; draftsAway: number; pct: number; discount: number; note: string }
 
 /** Pure: a pick's value as of the trade date. */
 export function pickPrice(pick: { season: number; round: number; number: number | null; conditional?: boolean }, tradeDate: string, cfg: PickValueConfig = PICK_VALUE): PickPrice {
@@ -42,13 +42,9 @@ export function pickPrice(pick: { season: number; round: number; number: number 
     : away === 0 ? `valued as pick ${slot}, the middle of the round`
     : cfg.future.rule === 'round' ? `valued as pick ${slot}: ${away} draft${away > 1 ? 's' : ''} away, one round later per draft`
     : `valued as pick ${slot}, less ${Math.round(cfg.future.rate * 100)}% per draft away`;
-  return { millions, slot, draftsAway: away, pct, note: `${label} (${how}${pick.conditional ? '; conditional, valued in full' : ''})` };
+  return { millions, slot, draftsAway: away, pct, discount, note: `${label} (${how}${pick.conditional ? '; conditional, valued in full' : ''})` };
 }
 
-const ordinal = (n: number): string => {
-  const r = n % 100;
-  return `${n}${r >= 11 && r <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
-};
 const money = (m: number): string => `${m < 0 ? '-' : ''}$${Math.abs(round(m, 1))}M`;
 
 /** Pure: a player's cap hits for the seasons counted (this one first), millions. */
@@ -70,19 +66,21 @@ export function priceAsset(m: Move, season: number, values: Map<string, PlayerVa
   if (m.pick) {
     if (!m.pickOf) return { ...base, millions: null, how: 'Pick not identified in the trades file' };
     const p = pickPrice(m.pickOf, m.date, cfg);
-    return { ...base, millions: p.millions, how: `${p.note}: Baldwin chart surplus ${p.pct}% of the cap per season × $${cfg.capMillions}M cap × ${cfg.rookieYears} rookie seasons` };
+    return { ...base, millions: p.millions, how: `${p.note}: Baldwin chart surplus ${p.pct}% of the cap per season × $${cfg.capMillions}M cap × ${cfg.rookieYears} rookie seasons${p.discount < 1 ? ` × ${round(p.discount, 2)}` : ''}` };
   }
   const v = m.id ? values.get(m.id) : undefined;
   if (!v || !m.id) {
     const why = m.group === 'OL' || m.group === 'ST' ? 'no individual production stat for his position' : 'not enough snaps this season to be ranked';
     return { ...base, millions: null, how: `No value: ${why}` };
   }
-  const caps = capsLeft(m.id, season, v, contracts, MOVE_GRADE.maxYears);
-  const millions = round(caps.reduce((s, c) => s + (v.worthMillions - c), 0), 1);
+  // the shown numbers (to $0.1M) are the ones summed, so the text adds up to the value
+  const caps = capsLeft(m.id, season, v, contracts, MOVE_GRADE.maxYears).map((c) => round(c, 1));
+  const worth = round(v.worthMillions, 1);
+  const millions = round(caps.reduce((s, c) => s + (worth - c), 0), 1);
   const seasons = caps.length === 1 ? '1 season' : `${caps.length} seasons`;
   return {
     ...base, millions,
-    how: `${ordinal(Math.round(v.production))} pct ${v.group} producer, worth $${round(v.worthMillions, 1)}M/yr (what the ${ordinal(Math.round(v.production))} pct ${v.group} is paid) − cap hit${caps.length > 1 ? 's' : ''} ${caps.map((c) => `$${round(c, 1)}M`).join(' + ')}, over ${seasons}`,
+    how: `${ordinal(Math.round(v.production))} pct ${v.group} producer, worth $${worth}M/yr (what the ${ordinal(Math.round(v.production))} pct ${v.group} is paid) − cap hit${caps.length > 1 ? 's' : ''} ${caps.map((c) => `$${c}M`).join(' + ')}, over ${seasons}`,
   };
 }
 

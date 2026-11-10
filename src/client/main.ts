@@ -703,15 +703,16 @@ function tradeCard(t: TradeCard, i: number): HTMLElement {
     ]),
     tradeVerdict(t),
     ...t.sides.map(side),
-    t.note ? el('p', { className: 'p-meta', text: t.note }) : null,
   ]);
 }
 
 /** The headline: who came out ahead, by how much (or why there's no grade). */
 function tradeVerdict(t: TradeCard): HTMLElement {
   if (t.note) return el('p', { className: 'trade-verdict w-none', text: t.note });
-  const best = [...t.sides].sort((a, b) => b.net - a.net)[0];
-  return el('p', { className: 'trade-verdict', text: !best || best.net === 0 ? 'Even trade' : `${best.team} wins by ${tradeMoney(best.net)} of value` });
+  // each team's net, best first: two teams read "JAX +$2.8M · ATL -$2.8M"; ties and three-team trades stay accurate
+  const sides = [...t.sides].sort((a, b) => b.net - a.net || a.team.localeCompare(b.team));
+  if (sides.every((s) => s.net === 0)) return el('p', { className: 'trade-verdict', text: 'Even trade: net value $0 for each team' });
+  return el('p', { className: 'trade-verdict', text: `Net value: ${sides.map((s) => `${s.team} ${s.net >= 0 ? '+' : ''}${tradeMoney(s.net)}`).join(' · ')}` });
 }
 
 function movesView(): HTMLElement {
