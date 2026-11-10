@@ -82,11 +82,22 @@ describe('trades and the draft', () => {
 describe('trade or waiver claim (roster to roster, no trade row)', () => {
   const change = (id: string, team: string, from: string): Move => ({ date: '2026-10-01', when: 'Week 5', kind: 'moved', id, name: id, pos: 'WR', group: 'WR', team, from, detail: 'Joined' });
   it('players going both ways between two teams that week: a trade; otherwise it stays trade or claim', () => {
-    const out = classifyTeamChanges([change('a', 'AAA', 'BBB'), change('b', 'BBB', 'AAA'), change('c', 'CCC', 'DDD')], new Set());
+    const out = classifyTeamChanges([change('a', 'AAA', 'BBB'), change('b', 'BBB', 'AAA'), change('c', 'CCC', 'DDD')], new Map());
     expect(out.map((m) => m.kind)).toEqual(['trade', 'trade', 'moved']);
     expect(out[0]?.detail).toBe('Traded from BBB to AAA (players went both ways that week)');
   });
-  it('drops a roster change the trades file already has', () => {
-    expect(classifyTeamChanges([change('a', 'AAA', 'BBB')], new Set(['a|AAA']))).toEqual([]);
+  it('drops a roster change the trades file already has (dated just before it), keeps a later one', () => {
+    expect(classifyTeamChanges([change('a', 'AAA', 'BBB')], new Map([['a|AAA', ['2026-09-28']]]))).toEqual([]);
+    expect(classifyTeamChanges([change('a', 'AAA', 'BBB')], new Map([['a|AAA', ['2026-03-01']]]))).toHaveLength(1);
+  });
+
+  it('end to end: an in-season trade in the trades file replaces the roster change (PFR id -> gsis, PFR team codes)', () => {
+    const moves = buildMoves({
+      ...empty,
+      games: [game(1, '2026-09-10'), game(5, '2026-10-08')],
+      rosterHistory: [{ p: '00-9', f: 'DaviJo01', n: 'Jordan Davis', pos: 'DT', h: [[1, 'PHI', 'ACT'], [5, 'JAX', 'ACT']] }],
+      trades: [{ id: '7', date: '2026-10-03', gave: 'PHI', received: 'JAX', pfr: 'DaviJo01', name: 'Jordan Davis', pickSeason: null, pickRound: null }],
+    });
+    expect(moves.filter((m) => m.name === 'Jordan Davis').map((m) => [m.kind, m.when])).toEqual([['trade', 'Oct 3']]);
   });
 });

@@ -585,6 +585,8 @@ export interface MovesConfig {
    */
   status: { active: string[]; reserve: string; practice: string; released: string; retired: string; traded: string[] };
   labels: Record<MoveKind, string>;
+  /** A roster change is the trades file's trade (and dropped as a repeat) when that trade is dated this many days before it, or fewer. */
+  tradeMatchDays: number;
 }
 
 export const MOVES: MovesConfig = {
@@ -606,6 +608,7 @@ export const MOVES: MovesConfig = {
     trade: 'Trade', moved: 'Trade or claim', draft: 'Drafted', signed: 'Signed', released: 'Released', reserve: 'Reserve',
     activated: 'Activated', promoted: 'Promoted', practice: 'Practice squad', retired: 'Retired',
   },
+  tradeMatchDays: 14,
 };
 
 // ---------------------------------------------------------------------------------------------------------------

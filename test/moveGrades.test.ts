@@ -31,7 +31,7 @@ describe('move grades', () => {
     const [jax, phi] = m?.grades ?? [];
     expect(jax?.team).toBe('JAX');
     expect(jax?.word).toBe('Great');
-    expect(jax?.reason).toBe('pass D 30th (season so far) · 90% playoff odds · 90th pct producer · $15M/yr under his worth for 2 yrs');
+    expect(jax?.reason).toBe('pass D 30th (season so far) · 90% playoff odds (season so far) · 90th pct producer · $15M/yr under his worth for 2 yrs');
     expect(phi?.team).toBe('PHI');
     expect(phi?.score).toBeLessThan(jax?.score ?? 0);
   });

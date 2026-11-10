@@ -103,7 +103,7 @@ export function gradeMoves(moves: Move[], inp: MoveGradeInputs, cfg: MoveGradeCo
 
     const bits: string[] = [];
     if (worst) bits.push(`${UNITS[worst.k].reason} ${ordinal(worst.u.rank)}${early ? ' (season so far)' : ' before'}`);
-    if (odds !== undefined) bits.push(`${Math.round(100 * odds)}% playoff odds${early ? '' : ' before'}`);
+    if (odds !== undefined) bits.push(`${Math.round(100 * odds)}% playoff odds${early ? ' (season so far)' : ' before'}`);
     bits.push(`${ordinal(Math.round(p.scores.production))} pct producer`);
     if (v && perYear !== null) {
       const gap = round(v.worthMillions - perYear, 1);
