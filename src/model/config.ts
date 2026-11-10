@@ -562,6 +562,52 @@ export const VALUE: ValueConfig = {
   frontOffice: { listSize: 3, idleCapMillions: 8, minPlayers: 8 },
 };
 
+// ---------------------------------------------------------------------------------------------------------------
+// Move tracker: trades, the draft, signings, releases, reserve and practice-squad moves
+// ---------------------------------------------------------------------------------------------------------------
+
+export type MoveKind = 'trade' | 'draft' | 'signed' | 'released' | 'reserve' | 'activated' | 'promoted' | 'practice' | 'retired' | 'moved';
+
+export interface MovesConfig {
+  /** A roster position (any file's spelling) -> the position filter's group. Unlisted positions go to `other`. */
+  positionGroup: Record<string, string>;
+  /** The filter's groups, in order. */
+  positionGroups: string[];
+  other: string;
+  /** Pro Football Reference team codes (draft file) -> the nflverse codes used everywhere else. */
+  teamCodes: Record<string, string>;
+  /** The first day of each season's draft, for sorting draft picks by date (the draft file has no dates). */
+  draftDay: Record<number, string>;
+  /**
+   * Weekly roster status codes: ACT active, INA game-day inactive, RES reserve (injured reserve and similar),
+   * DEV practice squad, CUT released, RET retired. `traded` lists codes that mean the player was traded (none
+   * documented today). Codes not listed here produce no move.
+   */
+  status: { active: string[]; reserve: string; practice: string; released: string; retired: string; traded: string[] };
+  labels: Record<MoveKind, string>;
+}
+
+export const MOVES: MovesConfig = {
+  positionGroup: {
+    QB: 'QB', RB: 'RB', FB: 'RB', HB: 'RB', WR: 'WR', TE: 'TE',
+    T: 'OL', OT: 'OL', G: 'OL', OG: 'OL', C: 'OL', OL: 'OL', IOL: 'OL',
+    DE: 'DL', DT: 'DL', NT: 'DL', DL: 'DL', EDGE: 'DL',
+    LB: 'LB', ILB: 'LB', MLB: 'LB', OLB: 'LB',
+    CB: 'DB', S: 'DB', SS: 'DB', FS: 'DB', SAF: 'DB', DB: 'DB',
+    K: 'ST', P: 'ST', LS: 'ST',
+  },
+  positionGroups: ['QB', 'RB', 'WR', 'TE', 'OL', 'DL', 'LB', 'DB', 'ST'],
+  other: 'Other',
+  teamCodes: { GNB: 'GB', KAN: 'KC', LAR: 'LA', LVR: 'LV', NOR: 'NO', NWE: 'NE', SFO: 'SF', TAM: 'TB', SDG: 'LAC', STL: 'LA', OAK: 'LV' },
+  draftDay: { 2025: '2025-04-24', 2026: '2026-04-23' },
+  // TRD, TRT and TRC show up a handful of times a season with no documented meaning, so they mark no trade
+  status: { active: ['ACT', 'INA'], reserve: 'RES', practice: 'DEV', released: 'CUT', retired: 'RET', traded: [] },
+  labels: {
+    trade: 'Trade', moved: 'Changed teams', draft: 'Drafted', signed: 'Signed', released: 'Released', reserve: 'Reserve',
+    activated: 'Activated', promoted: 'Promoted', practice: 'Practice squad', retired: 'Retired',
+  },
+};
+
 export interface BuyConfig {
   /** Targets listed per buyer. */
   targetsPerTeam: number;

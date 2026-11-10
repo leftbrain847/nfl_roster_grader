@@ -9,7 +9,7 @@ export type SourceId =
   | 'schedules' | 'pbp' | 'rosters'
   | 'ngs_passing' | 'ngs_receiving' | 'ngs_rushing'
   | 'pfr_pass' | 'pfr_rush' | 'pfr_rec' | 'pfr_def'
-  | 'snaps' | 'contracts' | 'player_weeks';
+  | 'snaps' | 'contracts' | 'player_weeks' | 'roster_moves' | 'trades' | 'draft';
 
 export type CoverageKind = 'games' | 'weeks' | 'age';
 
@@ -43,6 +43,11 @@ export const SOURCES: SourceDef[] = [
   // The contracts table (OverTheCap via nflverse) is only kept current as parquet; the old csv.gz stopped in 2022.
   { id: 'contracts', label: 'Contracts (OverTheCap)', path: 'contracts/historical_contracts.parquet', coverage: 'age', lagDays: 0, maxAgeDays: 30, required: false },
   { id: 'player_weeks', label: 'Weekly player stats', path: 'stats_player/stats_player_week_{season}.csv', coverage: 'games', lagDays: 2, required: false },
+  // the move tracker reads the weekly roster file a second time, for every player's week-by-week team and status
+  { id: 'roster_moves', label: 'Roster moves (weekly rosters)', path: 'weekly_rosters/roster_weekly_{season}.csv', coverage: 'weeks', lagDays: 3, required: false },
+  // nflverse updates the trades file a few times a year, so in-season trades show up as roster moves until it catches up
+  { id: 'trades', label: 'Trades', path: 'trades/trades.csv', coverage: 'age', lagDays: 0, maxAgeDays: 400, required: false },
+  { id: 'draft', label: 'Draft picks', path: 'draft_picks/draft_picks.csv', coverage: 'age', lagDays: 0, maxAgeDays: 400, required: false },
 ];
 
 export const sourceUrl = (s: SourceDef, season: number): string => `${NFLVERSE_BASE}/${s.path.replace('{season}', String(season))}`;

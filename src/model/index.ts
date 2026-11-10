@@ -9,6 +9,7 @@ import { gradeUnits, weakestUnit } from './grades.ts';
 import { divisionOf, records, recordText, scheduleLeft, simulatePlayoffs, strengths } from './playoffs.ts';
 import { rankPlayers } from './players.ts';
 import { buildProfiles } from './profiles.ts';
+import { buildMoves } from './moves.ts';
 import { buildValue } from './value.ts';
 import { assertRatingsAllowed } from './ratings.ts';
 import { round } from './stats.ts';
@@ -133,6 +134,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     players,
     profiles,
     value: buildValue(inp, profiles, players, teams, played),
+    moves: buildMoves(inp),
     sources: opts.sources,
     rankingModes: modes,
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,

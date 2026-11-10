@@ -31,6 +31,9 @@ All from the [nflverse-data](https://github.com/nflverse/nflverse-data) GitHub r
 | Snap counts | `snap_counts/snap_counts_<season>.csv` | defense snaps (rates and qualifying minimums), snap share in game logs |
 | Contracts | `contracts/historical_contracts.parquet` | cap context on each player (APY, % of cap at signing, last year) and this season's base salary (for the base salary left). Only the parquet is current; the csv.gz stopped in 2022. Reading its year-by-year column takes ~1.3 GB, so `npm run refresh` raises Node's heap to 4 GB. |
 | Weekly player stats | `stats_player/stats_player_week_<season>.csv` | player pages: one game-log line per game (columns in `GAME_LOG`, `config.ts`) |
+| Weekly rosters (again) | `weekly_rosters/roster_weekly_<season>.csv` | the Moves tab: each player's team and status week by week; a change between weeks is a signing, release, reserve or practice-squad move |
+| Trades | `trades/trades.csv` | the Moves tab: this season's trades (nflverse updates it a few times a year; until then an in-season trade shows as a player changing teams) |
+| Draft picks | `draft_picks/draft_picks.csv` | the Moves tab: this season's draft (no dates in the file: sorted on the draft's first day, `MOVES.draftDay`) |
 
 **Value** (`src/model/value.ts`, settings in `VALUE`). Cap hit = the contract's row for this season. *Production per $*: a ranked player's production score is worth the cap hit at the same percentile of pay at his position; surplus = worth minus his cap hit. The best roster under a budget takes the starters with the highest total production whose cap hits fit (found exactly: a knapsack per position, then the budget split across positions). *Fantasy per $*: PPR points per $1M of cap hit, and the best fantasy lineup under a budget. *Cap value by team* (Front office tab): surplus summed over a team's ranked players, graded 0-100 across teams. Dead money, linemen and specialists are left out.
 

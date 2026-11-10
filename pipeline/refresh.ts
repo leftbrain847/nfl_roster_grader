@@ -230,6 +230,9 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
     roster: get('rosters', []),
     contracts: get('contracts', []),
     playerWeeks: get('player_weeks', []),
+    rosterHistory: get('roster_moves', []),
+    trades: get('trades', []),
+    draft: get('draft', []),
     ratings,
   };
   const dataAsOf = [...used.values()].map((s) => s.lastModified ?? '').filter((d) => d && d <= opts.today).sort().pop() ?? opts.today;

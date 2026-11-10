@@ -58,7 +58,7 @@ describe('refresh pipeline (fixtures, no network)', () => {
     expect(o.players.length).toBeGreaterThan(100);
     expect(o.players.some((p) => p.contract)).toBe(true);
     expect(o.rankingModes).toEqual(['production']);
-    expect(o.sources.map((s) => s.state)).toEqual(Array(13).fill('fresh'));
+    expect(o.sources.map((s) => s.state)).toEqual(Array(16).fill('fresh'));
     expect(o.dataAsOf).toBe('2026-09-21');
     expect(res.written).toContain(snapshotPath('pfr_def'));
   });
