@@ -42,6 +42,11 @@ const state = {
 const players = new Map(data.players.map((p) => [p.id, p]));
 const teams = new Map(data.teams.map((t) => [t.team, t]));
 const profiles = new Map((data.profiles ?? []).map((p) => [p.id, p]));
+// a data file from before line grades existed still opens its team sheets
+for (const t of data.teams) {
+  t.line ??= { passPro: null, runBlock: null };
+  t.lineTargets ??= [];
+}
 // a data file from before the Value tab (or before part of it) still loads
 data.value = Object.assign({ players: [], rosters: [], fantasy: [], lineups: [], frontOffices: [] }, data.value as Partial<typeof data.value> | undefined);
 const VERDICT_ORDER: Record<Verdict, number> = { buy: 0, 'stand pat': 1, sell: 2 };
@@ -179,7 +184,7 @@ function statLine(p: PlayerResult): HTMLElement {
 function contractText(c: PlayerContract | null): string {
   if (!c) return 'No contract on file';
   const terms = `$${c.apyMillions.toFixed(1)}M/yr · ${(100 * c.capPct).toFixed(1)}% of cap at signing · thru ${c.lastYear}`;
-  return c.baseSalaryLeftMillions === null ? terms : `${terms} · base salary left ≈ $${c.baseSalaryLeftMillions.toFixed(2)}M`;
+  return c.baseSalaryLeftMillions == null ? terms : `${terms} · base salary left ≈ $${c.baseSalaryLeftMillions.toFixed(2)}M`;
 }
 
 function playerCard(p: PlayerResult, opts: { showTeam: boolean; rank?: number }): HTMLElement {
@@ -500,9 +505,14 @@ function playersView(): HTMLElement {
 
 const chip = (text: string, on: boolean, onClick: () => void, key?: string): HTMLElement =>
   el('button', { className: `chip${on ? ' on' : ''}`, text, attrs: { 'aria-pressed': String(on), ...(key ? { 'data-sub': key } : {}) }, onClick });
+// without cap hits (sample data, or contracts missing) the value views are empty: open on the board instead
+if (!data.value.players.length) {
+  state.view = 'office';
+  state.officeView = 'board';
+}
 const dollars = (m: number): string => `${m >= 0 ? '+' : '-'}$${Math.abs(m).toFixed(1)}M`;
 const valueMeta = (p: PlayerValue, team: boolean): string =>
-  `${team ? `${p.team} · ` : ''}${p.group} · ${ordinal(Math.round(p.production))} percentile · worth ${money(p.worthMillions)}, cap hit ${money(p.capMillions)}`;
+  `${team ? `${p.team} · ` : ''}${p.group} · ${ordinal(Math.min(99, Math.round(p.production)))} percentile · worth ${money(p.worthMillions)}, cap hit ${money(p.capMillions)}`;
 
 function productionView(): HTMLElement {
   const value = data.value;
@@ -513,7 +523,7 @@ function productionView(): HTMLElement {
   const spots = Object.entries(R.lineup.slots).map(([p, n]) => `${n} ${p}`).join(', ');
   return el('div', { className: 'rankings' }, [
     el('h2', { className: 'pos-title', text: 'Production per cap dollar' }),
-    el('p', { className: 'fine', text: 'Every ranked player, by what his production is worth minus what he costs. Production is the 0-100 score from the Production tab. It is worth the cap hit found at the same percentile of pay at his position: the 90th-percentile producer is worth what the 90th-percentile-paid player costs. Tap a player.' }),
+    el('p', { className: 'fine', text: 'Every ranked player with a known cap hit, by what his production is worth minus what he costs. Production is the 0-100 score from the Production tab. It is worth the cap hit found at the same percentile of pay at his position: the 90th-percentile producer is worth what the 90th-percentile-paid player costs. Tap a player.' }),
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, ['All', ...POSITION_GROUPS].map((g) => chip(g, state.valuePos === g, () => { state.valuePos = g; draw(); }))),
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Order' } }, [
       chip('Best value', state.valueOrder === 'best', () => { state.valueOrder = 'best'; draw(); }),
@@ -661,7 +671,7 @@ function footer(): HTMLElement {
     el('p', { text: 'Player scores: percentile within the position of a weighted mix of stat percentiles, among players over a per-game volume minimum. Offensive linemen are graded by team instead (Production, then OL); specialists are not ranked. Open data has no good per-player stat for either.' }),
     el('p', { text: 'Offensive line: pass protection = QB pressures (PFR) per dropback; run blocking = rushing yards before contact per carry (PFR). When a buyer\'s weakest unit is pass O or rush O, it shops for the weaker half: the line, or the pass catchers (EPA per non-sack attempt) or backs (yards after contact per carry).' }),
     el('p', { text: 'Player pages (Production, then search, or "Game log and contract" on a ranked player): one line per game from the nflverse weekly stats, for every quarterback, back, receiver, tight end and defender with a stat this season. Snap% is his share of the team\'s offense or defense snaps. PPR = fantasy points with a point per catch. Contract years show base salary, cap hit and cash paid.' }),
-    el('p', { text: `Value: cap hit is what a player counts against his team's cap this season (from the contract's yearly rows). Production per $: a ranked player's production score is worth the cap hit at the same percentile of pay at his position; surplus is that worth minus his own cap hit. Cheap producers (often rookie deals) come out best, expensive players who aren't producing worst, and a star paid like a star about even. Cap value by team (Front office) adds the surplus up by team; it ignores dead money, linemen, specialists and players without enough play to rank, and teams that spend more on ranked players tend to score lower. Fantasy per $ = PPR points per $1M of cap hit. Best rosters and lineups are found exactly, with cap hits rounded up to the nearest $${VALUE.fantasy.budgetStepMillions}M; the weekly lineup uses the latest week with every game played.` }),
+    el('p', { text: `Value: cap hit is what a player counts against his team's cap this season (from the contract's yearly rows). Production per $: a ranked player's production score is worth the cap hit at the same percentile of pay at his position; surplus is that worth minus his own cap hit. Cheap producers (often rookie deals) come out best and expensive players who aren't producing worst. Pay is steep at the top of a position, so its highest-paid players only break even by being its very best producers, and a few percentile points there can move worth by many millions. Cap value by team (Front office) adds the surplus up by team; it ignores dead money, linemen, specialists and players without enough play to rank, teams that spend more on ranked players tend to score lower, and a quarterback's surplus can swing a team's total. Fantasy per $ = PPR points per $1M of cap hit. Best rosters and lineups are found exactly, with cap hits rounded up to the nearest $${Math.max(VALUE.fantasy.budgetStepMillions, VALUE.roster.budgetStepMillions)}M; the weekly lineup uses the latest week with every game played.` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
@@ -701,7 +711,11 @@ document.addEventListener('keydown', (e) => {
   else if (state.team) closeTeam();
 });
 const fromHash = /^#team-([a-z]{2,3})$/.exec(location.hash)?.[1]?.toUpperCase();
-if (fromHash && teams.has(fromHash)) state.team = fromHash;
+if (fromHash && teams.has(fromHash)) {
+  state.team = fromHash;
+  state.view = 'office';
+  state.officeView = 'board';
+}
 const playerHash = /^#player-([0-9-]{4,12})$/.exec(location.hash)?.[1];
 if (playerHash && profiles.has(playerHash)) {
   state.player = playerHash;
