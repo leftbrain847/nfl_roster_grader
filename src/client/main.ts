@@ -5,7 +5,7 @@
  */
 import data from '@roster-data';
 import {
-  ADJUST, GAME_LOG, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
+  ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
@@ -13,8 +13,11 @@ import { logTotals } from '../model/profiles.ts';
 import type { ContractDetail, FrontOffice, LineTarget, Lineup, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
+/** Moves listed at first; "Show more" adds this many again. */
+const MOVES_PAGE = 60;
+
 type SortKey = 'team' | 'verdict' | 'odds' | UnitKey;
-type View = 'value' | 'players' | 'office';
+type View = 'value' | 'players' | 'office' | 'moves';
 
 const state = {
   view: 'value' as View,
@@ -32,6 +35,9 @@ const state = {
   valueOrder: 'best' as 'best' | 'worst',
   rosterBudget: VALUE.roster.budgetsMillions[0] ?? 0,
   officeView: 'cap' as 'cap' | 'board',
+  moveTeam: 'all',
+  moveGroup: 'all',
+  moveShown: MOVES_PAGE,
   fantasyPos: 'All',
   budget: VALUE.fantasy.budgetsMillions[0] ?? 0,
   lineupScope: 'season' as Lineup['scope'],
@@ -41,6 +47,7 @@ const state = {
 
 const players = new Map(data.players.map((p) => [p.id, p]));
 const teams = new Map(data.teams.map((t) => [t.team, t]));
+const moves = data.moves ?? [];
 const profiles = new Map((data.profiles ?? []).map((p) => [p.id, p]));
 // a data file from before line grades existed still opens its team sheets
 for (const t of data.teams) {
@@ -654,6 +661,58 @@ function officeView(): HTMLElement {
   ]);
 }
 
+// ------------------------------------------------------------------ moves
+
+function selectBox(label: string, value: string, options: [string, string][], onChange: (v: string) => void): HTMLElement {
+  const s = el('select', { className: 'pick', attrs: { 'aria-label': label } }, options.map(([v, t]) => {
+    const o = el('option', { text: t, attrs: { value: v } });
+    if (v === value) o.selected = true;
+    return o;
+  }));
+  s.addEventListener('change', () => onChange(s.value));
+  return el('label', { className: 'pick-wrap' }, [el('span', { className: 'pick-label', text: label }), s]);
+}
+
+function movesView(): HTMLElement {
+  const teamCodes = [...new Set(moves.flatMap((m) => [m.team, m.from ?? '']).filter(Boolean))].sort();
+  const groups = [...MOVES.positionGroups, ...(moves.some((m) => m.group === MOVES.other) ? [MOVES.other] : [])];
+  const list = moves.filter((m) => (state.moveTeam === 'all' || m.team === state.moveTeam || m.from === state.moveTeam)
+    && (state.moveGroup === 'all' || m.group === state.moveGroup));
+  const shown = list.slice(0, state.moveShown);
+  let lastWhen = '';
+  const items: HTMLElement[] = [];
+  shown.forEach((m, i) => {
+    if (m.when !== lastWhen) {
+      lastWhen = m.when;
+      items.push(el('li', { className: 'move-when', text: m.when }));
+    }
+    const main = [
+      el('span', { className: `move-kind k-${m.kind}`, text: MOVES.labels[m.kind] }),
+      el('span', { className: 'p-main' }, [
+        el('span', { className: 'p-name', text: m.name }),
+        el('span', { className: 'p-meta', text: `${[m.pos, m.team].filter(Boolean).join(' · ')} · ${m.detail}` }),
+      ]),
+    ];
+    items.push(el('li', { className: 'player' }, [
+      m.id && profiles.has(m.id)
+        ? el('button', { className: 'player-head', attrs: { 'data-move': String(i) }, onClick: () => openPlayer(m.id as string, `[data-move="${i}"]`) }, main)
+        : el('div', { className: 'player-head' }, main),
+    ]));
+  });
+  return el('section', { className: 'rankings' }, [
+    el('h2', { className: 'pos-title', text: 'Moves' }),
+    el('p', { className: 'fine', text: 'Every trade, draft pick and roster move this season, newest first. Tap a player for his game log and contract (players with stats this season).' }),
+    el('div', { className: 'picks' }, [
+      selectBox('Team', state.moveTeam, [['all', 'All teams'], ...teamCodes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()])], (v) => { state.moveTeam = v; state.moveShown = MOVES_PAGE; draw(); }),
+      selectBox('Position', state.moveGroup, [['all', 'All positions'], ...groups.map((g): [string, string] => [g, g])], (v) => { state.moveGroup = v; state.moveShown = MOVES_PAGE; draw(); }),
+    ]),
+    el('p', { className: 'fine', text: `${list.length} moves` }),
+    list.length ? el('ol', { className: 'players moves' }, items) : el('p', { className: 'fine', text: 'No moves match.' }),
+    list.length > shown.length ? el('button', { className: 'more', text: `Show more (${list.length - shown.length} left)`, onClick: () => { state.moveShown += MOVES_PAGE; draw(); } }) : null,
+    el('p', { className: 'fine', text: 'In-season moves are read from week-to-week changes in the weekly rosters, so they are dated by week, and a player who changed teams without a matching trade is shown as a trade or waiver claim. The trades file is updated a few times a year; its date is in Sources below.' }),
+  ]);
+}
+
 // ------------------------------------------------------------------ footer
 
 function footer(): HTMLElement {
@@ -674,7 +733,7 @@ function footer(): HTMLElement {
     el('p', { text: `Value: cap hit is what a player counts against his team's cap this season (from the contract's yearly rows). Production per $: a ranked player's production score is worth the cap hit at the same percentile of pay at his position; surplus is that worth minus his own cap hit. Cheap producers (often rookie deals) come out best and expensive players who aren't producing worst. Pay is steep at the top of a position, so its highest-paid players only break even by being its very best producers, and a few percentile points there can move worth by many millions. Cap value by team (Front office) adds the surplus up by team; it ignores dead money, linemen, specialists and players without enough play to rank, teams that spend more on ranked players tend to score lower, and a quarterback's surplus can swing a team's total. Fantasy per $ = PPR points per $1M of cap hit. Best rosters and lineups are found exactly, with cap hits rounded up to the nearest $${Math.max(VALUE.fantasy.budgetStepMillions, VALUE.roster.budgetStepMillions)}M; the weekly lineup uses the latest week with every game played.` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
-    el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
+    el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, trades and draft picks, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
     data.ratingsCredit ? el('p', { text: `Ratings: ${data.ratingsCredit}` }) : null,
   ]);
 }
@@ -684,9 +743,9 @@ function footer(): HTMLElement {
 function draw(): void {
   const team = state.team ? teams.get(state.team) : undefined;
   const profile = state.player ? profiles.get(state.player) : undefined;
-  const tabs = (['value', 'players', 'office'] as const).map((v) => el('button', {
+  const tabs = (['value', 'players', 'office', 'moves'] as const).map((v) => el('button', {
     className: `tab${state.view === v ? ' on' : ''}`,
-    text: v === 'value' ? 'Value' : v === 'players' ? 'Production' : 'Front office',
+    text: v === 'value' ? 'Value' : v === 'players' ? 'Production' : v === 'office' ? 'Front office' : 'Moves',
     attrs: { 'aria-pressed': String(state.view === v), 'data-view': v },
     onClick: () => { state.view = v; draw(); },
   }));
@@ -699,7 +758,7 @@ function draw(): void {
       el('nav', { className: 'tabs' }, tabs),
     ]),
     data.sample ? el('p', { className: 'banner', text: 'Sample data (weeks 1-2 of 2026): the nightly refresh has not run yet.' }) : null,
-    el('main', {}, [state.view === 'value' ? valueView() : state.view === 'players' ? playersView() : officeView(), footer()]),
+    el('main', {}, [state.view === 'value' ? valueView() : state.view === 'players' ? playersView() : state.view === 'office' ? officeView() : movesView(), footer()]),
     team ? teamSheet(team) : null,
     profile ? playerSheet(profile) : null,
   ]));

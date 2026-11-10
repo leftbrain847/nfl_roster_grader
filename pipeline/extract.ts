@@ -3,10 +3,10 @@
  * what it covers (game ids or latest week), which decides fresh / lagging / kept.
  */
 import { gunzipSync } from 'node:zlib';
-import { BIG_PLAYS, GAME_LOG, LINE_TARGETS, PLAY_FILTER } from '../src/model/config.ts';
+import { BIG_PLAYS, GAME_LOG, LINE_TARGETS, MOVES, PLAY_FILTER } from '../src/model/config.ts';
 import type {
-  Contract, ContractSeason, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
-  PlayerWeek, RosterPlayer, SnapRow, TeamGame,
+  Contract, ContractSeason, DraftPick, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
+  PlayerWeek, RosterHistory, RosterPlayer, SnapRow, TeamGame, TradeRow,
 } from '../src/model/types.ts';
 import { parseCsv, reader, type Table } from './csv.ts';
 import type { SourceId } from './sources.ts';
@@ -200,6 +200,77 @@ export function extractRosters(t: Table, season: number): Extracted<RosterPlayer
   // keep a player only if his latest row is his team's latest week (otherwise he has since left that roster)
   const data = [...latest.values()].filter((p) => p.week === teamWeek.get(p.team));
   return { data, maxWeek };
+}
+
+/** Weekly rosters -> each player's team and status by week, keeping only the weeks where one of them changed. */
+export function extractRosterHistory(t: Table, season: number): Extracted<RosterHistory[]> {
+  const r = reader(t);
+  r.require('season', 'game_type', 'gsis_id', 'week', 'team', 'pfr_id', 'full_name', 'position', 'status');
+  const by = new Map<string, { f: string | null; n: string; pos: string; weeks: Map<number, [string, string]> }>();
+  let maxWeek = 0;
+  for (const row of t.rows) {
+    if (r.num(row, 'season') !== season || !isReg(r.str(row, 'game_type'))) continue;
+    const p = r.str(row, 'gsis_id');
+    const team = r.str(row, 'team');
+    if (!p || !team) continue;
+    const week = r.num(row, 'week');
+    maxWeek = Math.max(maxWeek, week);
+    let x = by.get(p);
+    if (!x) by.set(p, (x = { f: null, n: '', pos: '', weeks: new Map() }));
+    x.f = r.str(row, 'pfr_id') || x.f;
+    x.n = r.str(row, 'full_name') || x.n;
+    x.pos = r.str(row, 'position') || x.pos;
+    x.weeks.set(week, [team, r.str(row, 'status')]);
+  }
+  const data: RosterHistory[] = [];
+  for (const [p, x] of by) {
+    const h: [number, string, string][] = [];
+    for (const w of [...x.weeks.keys()].sort((a, b) => a - b)) {
+      const [team, status] = x.weeks.get(w) as [string, string];
+      const last = h[h.length - 1];
+      if (!last || last[1] !== team || last[2] !== status) h.push([w, team, status]);
+    }
+    data.push({ p, f: x.f, n: x.n, pos: x.pos, h });
+  }
+  return { data, maxWeek };
+}
+
+const team = (code: string): string => MOVES.teamCodes[code] ?? code;
+
+/** Trades file -> this season's trade assets (players and picks). */
+export function extractTrades(t: Table, season: number): Extracted<TradeRow[]> {
+  const r = reader(t);
+  r.require('trade_id', 'season', 'trade_date', 'gave', 'received', 'pick_season', 'pick_round', 'pfr_id', 'pfr_name');
+  const data: TradeRow[] = [];
+  for (const row of t.rows) {
+    if (r.num(row, 'season') !== season) continue;
+    data.push({
+      id: r.str(row, 'trade_id'),
+      date: r.str(row, 'trade_date'),
+      gave: team(r.str(row, 'gave')),
+      received: team(r.str(row, 'received')),
+      pfr: r.str(row, 'pfr_id') || null,
+      name: r.str(row, 'pfr_name'),
+      pickSeason: r.opt(row, 'pick_season'),
+      pickRound: r.opt(row, 'pick_round'),
+    });
+  }
+  return { data };
+}
+
+/** Draft picks file -> this season's draft. */
+export function extractDraft(t: Table, season: number): Extracted<DraftPick[]> {
+  const r = reader(t);
+  r.require('season', 'round', 'pick', 'team', 'gsis_id', 'pfr_player_name', 'position');
+  const data: DraftPick[] = [];
+  for (const row of t.rows) {
+    if (r.num(row, 'season') !== season) continue;
+    data.push({
+      season, round: r.num(row, 'round'), pick: r.num(row, 'pick'), team: team(r.str(row, 'team')),
+      gsis: r.str(row, 'gsis_id') || null, name: r.str(row, 'pfr_player_name'), pos: r.str(row, 'position'),
+    });
+  }
+  return { data };
 }
 
 function ngsRows(t: Table, season: number, cols: string[]): { rows: string[][]; maxWeek: number; r: ReturnType<typeof reader> } {
@@ -418,5 +489,8 @@ export async function extract(id: SourceId, buf: Uint8Array, name: string, seaso
     case 'pfr_def': return extractPfrDef(t, season);
     case 'snaps': return extractSnaps(t, season);
     case 'player_weeks': return extractPlayerWeeks(t, season);
+    case 'roster_moves': return extractRosterHistory(t, season);
+    case 'trades': return extractTrades(t, season);
+    case 'draft': return extractDraft(t, season);
   }
 }

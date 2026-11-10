@@ -1,5 +1,5 @@
 /** Shapes shared by the refresh pipeline (pipeline/), the model (src/model/) and the page (src/client/). */
-import type { LineKey, LogKind, PositionGroup, RankingMode, StatKey, UnitKey, Verdict } from './config.ts';
+import type { LineKey, LogKind, MoveKind, PositionGroup, RankingMode, StatKey, UnitKey, Verdict } from './config.ts';
 
 // ------------------------------------------------------------------ model inputs (compact, built from nflverse)
 
@@ -113,6 +113,22 @@ export interface Contract {
   seasons?: ContractSeason[];
 }
 
+/** One player's weekly roster history: only the weeks where his team or status changed (plus his first week). */
+export interface RosterHistory {
+  p: string;
+  /** PFR id, to match trade rows. */
+  f: string | null;
+  n: string;
+  pos: string;
+  /** [week, team, status] */
+  h: [number, string, string][];
+}
+
+/** One asset in a trade: a player (pfr id and name) or a draft pick. */
+export interface TradeRow { id: string; date: string; gave: string; received: string; pfr: string | null; name: string; pickSeason: number | null; pickRound: number | null }
+
+export interface DraftPick { season: number; round: number; pick: number; team: string; gsis: string | null; name: string; pos: string }
+
 export interface ModelInputs {
   season: number;
   games: Game[];
@@ -129,6 +145,10 @@ export interface ModelInputs {
   roster: RosterPlayer[];
   contracts: Contract[];
   playerWeeks: PlayerWeek[];
+  /** The move tracker's inputs; optional so older test inputs still build. */
+  rosterHistory?: RosterHistory[];
+  trades?: TradeRow[];
+  draft?: DraftPick[];
   /** gsis_id -> 0-100, only when the optional ratings source is enabled. */
   ratings?: Record<string, number>;
 }
@@ -347,6 +367,25 @@ export interface ValueOutput {
   frontOffices: FrontOffice[];
 }
 
+/** One move in the tracker. */
+export interface Move {
+  /** YYYY-MM-DD, for sorting (newest first). Weekly roster moves take the date of that week's first game. */
+  date: string;
+  /** How the page shows when: "Mar 2", "Week 8", "2026 draft". */
+  when: string;
+  kind: MoveKind;
+  /** gsis id when known (it links to the player's page if he has one). */
+  id: string | null;
+  name: string;
+  pos: string;
+  /** The position filter's group. */
+  group: string;
+  team: string;
+  /** The other team, if any (traded from, signed from). */
+  from: string | null;
+  detail: string;
+}
+
 export interface ModelOutput {
   schemaVersion: 1;
   /** True only for the built-in sample (no real data yet): the page shows a banner. */
@@ -359,6 +398,7 @@ export interface ModelOutput {
   players: PlayerResult[];
   profiles: PlayerProfile[];
   value: ValueOutput;
+  moves: Move[];
   sources: SourceStatus[];
   rankingModes: RankingMode[];
   ratingsCredit: string | null;
