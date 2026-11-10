@@ -76,10 +76,36 @@ export function rosterMoves(history: RosterHistory[], games: Game[], cfg: MovesC
   return out;
 }
 
+/**
+ * Roster-to-roster moves with no trade row: the weekly rosters can't tell a trade from a waiver claim, so they stay
+ * "trade or claim", except when players went both ways between the two teams that week (a trade). One the trades
+ * file already has is dropped, so a trade isn't listed twice once that file catches up.
+ */
+const days = (iso: string): number => Date.parse(`${iso}T00:00:00Z`) / 86400000;
+
+/** traded: `${gsis}|${team}` -> the dates of trades in the trades file that sent him there. */
+export function classifyTeamChanges(moves: Move[], traded: Map<string, string[]>, cfg: MovesConfig = MOVES): Move[] {
+  const changes = moves.filter((m) => m.kind === 'moved');
+  const swap = (m: Move): boolean => changes.some((o) => o !== m && o.date === m.date && o.team === m.from && o.from === m.team);
+  const out: Move[] = [];
+  for (const m of moves) {
+    if (m.kind !== 'moved' || !m.from) { out.push(m); continue; }
+    const filed = m.id ? traded.get(`${m.id}|${m.team}`) ?? [] : [];
+    if (m.date && filed.some((d) => d && days(m.date) - days(d) >= 0 && days(m.date) - days(d) <= cfg.tradeMatchDays)) continue;
+    out.push(swap(m) ? { ...m, kind: 'trade', detail: `Traded from ${m.from} to ${m.team} (players went both ways that week)` } : m);
+  }
+  return out;
+}
+
 export function buildMoves(inp: ModelInputs, cfg: MovesConfig = MOVES): Move[] {
   const history = inp.rosterHistory ?? [];
   const byPfr = new Map(history.filter((x) => x.f).map((x) => [x.f as string, x]));
-  const out = rosterMoves(history, inp.games, cfg);
+  const traded = new Map<string, string[]>();
+  for (const t of inp.trades ?? []) {
+    const p = t.pfr ? byPfr.get(t.pfr) : undefined;
+    if (p) traded.set(`${p.p}|${t.received}`, [...(traded.get(`${p.p}|${t.received}`) ?? []), t.date]);
+  }
+  const out = classifyTeamChanges(rosterMoves(history, inp.games, cfg), traded, cfg);
 
   // trades: one row per asset; a player row links to his page through the roster's PFR id
   const byTrade = new Map<string, NonNullable<ModelInputs['trades']>>();
@@ -93,13 +119,14 @@ export function buildMoves(inp: ModelInputs, cfg: MovesConfig = MOVES): Move[] {
         date: t.date, when: t.date ? shortDate(t.date) : 'Trade', kind: 'trade', id: p?.p ?? null, name,
         pos: p?.pos ?? '', group: t.name ? positionGroup(p?.pos ?? '', cfg) : cfg.other, team: t.received, from: t.gave,
         detail: `Traded from ${t.gave} to ${t.received}${back.length ? ` for ${back.join(', ')}` : ''}`,
-        ...(t.name ? {} : { pick: true }),
+        tradeId: t.id,
+        ...(t.name ? {} : { pick: true, ...(t.pickSeason && t.pickRound ? { pickOf: { season: t.pickSeason, round: t.pickRound, number: t.pickNumber ?? null, ...(t.conditional ? { conditional: true } : {}) } } : {}) }),
       });
     }
   }
 
   for (const d of inp.draft ?? []) {
-    const day = cfg.draftDay[d.season] ?? `${d.season}-04-30`;
+    const day = cfg.draftDay[d.season] ?? `${d.season}-${cfg.draftDayFallback}`;
     out.push({
       date: day, when: `${d.season} draft`, kind: 'draft', id: d.gsis, name: d.name, pos: d.pos, group: positionGroup(d.pos, cfg),
       team: d.team, from: null, detail: `Round ${d.round}, pick ${d.pick} overall`,

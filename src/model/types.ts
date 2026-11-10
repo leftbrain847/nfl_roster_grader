@@ -125,7 +125,13 @@ export interface RosterHistory {
 }
 
 /** One asset in a trade: a player (pfr id and name) or a draft pick. */
-export interface TradeRow { id: string; date: string; gave: string; received: string; pfr: string | null; name: string; pickSeason: number | null; pickRound: number | null }
+export interface TradeRow {
+  id: string; date: string; gave: string; received: string; pfr: string | null; name: string; pickSeason: number | null; pickRound: number | null;
+  /** Overall pick number, when known (picks in a draft that's already set). */
+  pickNumber?: number | null;
+  /** A conditional pick (its round or existence depends on something later). */
+  conditional?: boolean;
+}
 
 export interface DraftPick { season: number; round: number; pick: number; team: string; gsis: string | null; name: string; pos: string }
 
@@ -386,6 +392,11 @@ export interface Move {
   detail: string;
   /** A traded draft pick (not a player). */
   pick?: boolean;
+  /** Trades file rows: the trade's id and, for a pick, which pick. */
+  tradeId?: string;
+  pickOf?: { season: number; round: number; number: number | null; conditional?: boolean };
+  /** Trades file rows: each team's whole-trade value (players and picks in dollars). */
+  tradeValue?: MoveGrade[];
   /** The move judged for each team in it: the team first, then (trades) the team that gave the player up. */
   grades?: MoveGrade[];
 }

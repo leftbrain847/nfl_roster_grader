@@ -5,8 +5,9 @@ import { ranks } from './stats.ts';
 import { buyTargets, tradeChips } from './buy.ts';
 import { playerContract } from './contracts.ts';
 import { gradeLines, lineRaw, lineStarters, lineTargets } from './line.ts';
-import { gradeUnits, weakestUnit } from './grades.ts';
-import { divisionOf, records, recordText, scheduleLeft, simulatePlayoffs, strengths } from './playoffs.ts';
+import { weakestUnit } from './grades.ts';
+import { seasonState } from './odds.ts';
+import { divisionOf, recordText, scheduleLeft } from './playoffs.ts';
 import { rankPlayers } from './players.ts';
 import { buildProfiles } from './profiles.ts';
 import { buildMoves } from './moves.ts';
@@ -28,26 +29,9 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
   const ratingsCfg = opts.ratingsCfg ?? RATINGS_SOURCE;
   assertRatingsAllowed(ratingsCfg);
   const teams = Object.values(DIVISIONS).flat().filter((t) => inp.games.some((g) => g.home === t || g.away === t)).sort();
-  const grades = gradeUnits(inp.teamGames, teams);
-  const recs = records(inp.games, teams);
-
-  // net EPA/play vs average, weighting pass and rush by the league's play mix
-  const passN = grades.fits.pass.rawOff;
-  const rushN = grades.fits.rush.rawOff;
-  const totPass = teams.reduce((s, t) => s + (passN[t]?.n ?? 0), 0);
-  const totRush = teams.reduce((s, t) => s + (rushN[t]?.n ?? 0), 0);
-  const passShare = totPass + totRush > 0 ? totPass / (totPass + totRush) : 0.5;
-  const net: Record<string, number> = {};
-  for (const t of teams) {
-    const u = grades.units[t];
-    if (!u) continue;
-    const off = passShare * (u.passOffense.adjusted - grades.fits.pass.leagueMean) + (1 - passShare) * (u.rushOffense.adjusted - grades.fits.rush.leagueMean);
-    const def = passShare * (u.passDefense.adjusted - grades.fits.pass.leagueMean) + (1 - passShare) * (u.rushDefense.adjusted - grades.fits.rush.leagueMean);
-    net[t] = off - def;
-  }
-  const strength = strengths(net, recs);
+  const season = seasonState(inp.games, inp.teamGames, teams);
+  const { grades, recs, strength, odds } = season;
   const sched = scheduleLeft(inp.games, strength);
-  const odds = simulatePlayoffs(inp.games, strength);
 
   const played: Record<string, number> = {};
   for (const t of teams) played[t] = recs[t]?.games ?? 0;
@@ -126,7 +110,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
   const profiles = buildProfiles(inp, throughWeek);
   const value = buildValue(inp, profiles, players, teams, played);
   const moves = gradeMoves(buildMoves(inp), {
-    season: inp.season, games: inp.games, teamGames: inp.teamGames, teams, seasonUnits: grades.units,
+    season: inp.season, games: inp.games, teamGames: inp.teamGames, teams, seasonNow: season,
     players, values: value.players, contracts: inp.contracts,
   });
   const modes: RankingMode[] = ratingsCfg.enabled && inp.ratings ? ['production', 'ratings', 'composite'] : ['production'];

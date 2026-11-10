@@ -7,10 +7,11 @@ import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
+  PICK_VALUE,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
-import type { ContractDetail, FrontOffice, LineTarget, Lineup, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -685,6 +686,11 @@ function movesView(): HTMLElement {
   const shown = list.slice(0, state.moveShown);
   let lastWhen = '';
   const items: HTMLElement[] = [];
+  const tradeShown = new Set<string>();
+  const gradeLine = (g: MoveGrade): HTMLElement => el('p', { className: 'move-grade' }, [
+    el('span', { className: `grade-word ${g.word ? `w-${g.word.toLowerCase()}` : 'w-none'}`, text: g.word ? `${g.team} ${g.word} ${g.score}` : g.team }),
+    el('span', { className: 'p-meta', text: g.reason }),
+  ]);
   shown.forEach((m, i) => {
     if (m.when !== lastWhen) {
       lastWhen = m.when;
@@ -702,10 +708,10 @@ function movesView(): HTMLElement {
         ? el('button', { className: 'player-head', attrs: { 'data-move': String(i) }, onClick: () => openPlayer(m.id as string, `[data-move="${i}"]`) }, main)
         : el('div', { className: 'player-head' }, main),
       // ungraded lines only where a grade is expected (trades); elsewhere they'd be noise on every depth move
-      m.grades?.some((g) => g.score !== null || m.kind === 'trade' || m.kind === 'moved') ? el('div', { className: 'move-grades' }, m.grades.map((g) => el('p', { className: 'move-grade' }, [
-        el('span', { className: `grade-word ${g.word ? `w-${g.word.toLowerCase()}` : 'w-none'}`, text: g.word ? `${g.team} ${g.word} ${g.score}` : `${g.team} not graded` }),
-        el('span', { className: 'p-meta', text: g.reason }),
-      ]))) : null,
+      m.grades?.some((g) => g.score !== null || m.kind === 'trade' || m.kind === 'moved') ? el('div', { className: 'move-grades' }, m.grades.map(gradeLine)) : null,
+      // the whole trade's value, once (on the trade's first row shown)
+      m.tradeId && m.tradeValue && !tradeShown.has(m.tradeId) && tradeShown.add(m.tradeId)
+        ? el('div', { className: 'move-grades trade-value' }, m.tradeValue.map(gradeLine)) : null,
     ]));
   });
   return el('section', { className: 'rankings' }, [
@@ -720,8 +726,8 @@ function movesView(): HTMLElement {
     el('p', { className: 'fine', text: `${list.length} moves` }),
     list.length ? el('ol', { className: 'players moves' }, items) : el('p', { className: 'fine', text: 'No moves match.' }),
     list.length > shown.length ? el('button', { className: 'more', text: `Show more (${list.length - shown.length} left)`, onClick: () => { state.moveShown += MOVES_PAGE; draw(); } }) : null,
-    el('p', { className: 'fine', text: 'Grades (0-100) judge each move for the team: how much it needed the position before the move (its unit grades from the games before; offseason and week 1–2 moves use the season so far and say so), the player’s production this season to date, and his cap hit in each season left on his deal against what that production is worth. For the team that lets a player go, each part counts the other way. Not counted: cap space, dead money, and draft picks, which aren’t priced. Linemen, specialists and players without enough snaps to be ranked aren’t graded.' }),
-    el('p', { className: 'fine', text: 'In-season moves are read from week-to-week changes in the weekly rosters, so they are dated by week, and a player who changed teams without a matching trade is shown as a trade or waiver claim. The trades file is updated a few times a year; its date is in Sources below.' }),
+    el('p', { className: 'fine', text: 'Grades (0-100) judge each move for the team: how much it needed the position before the move (its unit grades from the games before; offseason and week 1–2 moves use the season so far and say so), its playoff odds before the move (contenders should add talent; teams out of the race should sell it), the player’s production this season to date, and his cap hit in each season left on his deal against what that production is worth. For the team that lets a player go, each part counts the other way. Trades from the trades file also get a whole-trade grade: each player’s worth minus his cap hit over the seasons left, against each pick’s value from Ben Baldwin’s draft value chart (Open Source Football, CC BY-NC 4.0; see Credits) in today’s cap dollars, with a future pick valued one round later per draft away. A trade with an asset that has no value (a lineman, a backup without enough snaps) isn’t graded. Not counted: cap space and dead money. Linemen, specialists and players without enough snaps to be ranked aren’t graded.' }),
+    el('p', { className: 'fine', text: 'In-season moves are read from week-to-week changes in the weekly rosters, so they are dated by week, and a player who went straight from one roster to another is listed as a trade or waiver claim (the rosters don’t say which), unless players went both ways between the two teams that week or the trades file has it. The trades file is updated a few times a year; its date is in Sources below.' }),
   ]);
 }
 
@@ -746,6 +752,7 @@ function footer(): HTMLElement {
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, trades and draft picks, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
+    el('p', { text: PICK_VALUE.credit }),
     data.ratingsCredit ? el('p', { text: `Ratings: ${data.ratingsCredit}` }) : null,
   ]);
 }

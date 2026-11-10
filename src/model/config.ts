@@ -578,6 +578,10 @@ export interface MovesConfig {
   teamCodes: Record<string, string>;
   /** The first day of each season's draft, for sorting draft picks by date (the draft file has no dates). */
   draftDay: Record<number, string>;
+  /** Month-day used for a season missing from draftDay. */
+  draftDayFallback: string;
+  /** The draft runs this many days from its first day: a pick for that draft traded during it is still a current pick. */
+  draftDays: number;
   /**
    * Weekly roster status codes: ACT active, INA game-day inactive, RES reserve (injured reserve and similar),
    * DEV practice squad, CUT released, RET retired. `traded` lists codes that mean the player was traded (none
@@ -585,6 +589,8 @@ export interface MovesConfig {
    */
   status: { active: string[]; reserve: string; practice: string; released: string; retired: string; traded: string[] };
   labels: Record<MoveKind, string>;
+  /** A roster change is the trades file's trade (and dropped as a repeat) when that trade is dated this many days before it, or fewer. */
+  tradeMatchDays: number;
 }
 
 export const MOVES: MovesConfig = {
@@ -600,12 +606,15 @@ export const MOVES: MovesConfig = {
   other: 'Other',
   teamCodes: { GNB: 'GB', KAN: 'KC', LAR: 'LA', LVR: 'LV', NOR: 'NO', NWE: 'NE', SFO: 'SF', TAM: 'TB', SDG: 'LAC', STL: 'LA', OAK: 'LV' },
   draftDay: { 2025: '2025-04-24', 2026: '2026-04-23' },
+  draftDayFallback: '04-30',
+  draftDays: 3,
   // TRD, TRT and TRC show up a handful of times a season with no documented meaning, so they mark no trade
   status: { active: ['ACT', 'INA'], reserve: 'RES', practice: 'DEV', released: 'CUT', retired: 'RET', traded: [] },
   labels: {
-    trade: 'Trade', moved: 'Changed teams', draft: 'Drafted', signed: 'Signed', released: 'Released', reserve: 'Reserve',
+    trade: 'Trade', moved: 'Trade or claim', draft: 'Drafted', signed: 'Signed', released: 'Released', reserve: 'Reserve',
     activated: 'Activated', promoted: 'Promoted', practice: 'Practice squad', retired: 'Retired',
   },
+  tradeMatchDays: 14,
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -618,9 +627,10 @@ export interface MoveGradeConfig {
    * - need: 100 - the team's grade, before the move, in the unit the player's position feeds (the worse one if two)
    * - production: the player's production percentile at his position, this season to date
    * - cost: his production's worth (Value tab, in cap-hit terms) minus his cap hit, summed over the seasons left
+   * - window: the team's playoff odds before the move (x100): contenders should add, teams out of it should sell
    * A move that sends a player away scores each part from the other side (100 - part).
    */
-  weights: { need: number; production: number; cost: number };
+  weights: { need: number; production: number; cost: number; window: number };
   /** Ranked position -> the units it feeds. */
   units: Record<PositionGroup, UnitKey[]>;
   /** Need comes from games before the move; with fewer than this many, from the season so far (and it says so). */
@@ -638,7 +648,7 @@ export interface MoveGradeConfig {
 }
 
 export const MOVE_GRADE: MoveGradeConfig = {
-  weights: { need: 0.35, production: 0.35, cost: 0.3 },
+  weights: { need: 0.25, production: 0.25, cost: 0.25, window: 0.25 },
   units: {
     QB: ['passOffense'], WR: ['passOffense'], TE: ['passOffense'], RB: ['rushOffense'],
     EDGE: ['passDefense'], IDL: ['passDefense', 'rushDefense'], LB: ['rushDefense', 'passDefense'], CB: ['passDefense'], S: ['passDefense'],
@@ -650,6 +660,39 @@ export const MOVE_GRADE: MoveGradeConfig = {
   fallbackWord: 'Bad',
   adds: ['trade', 'moved', 'signed', 'draft', 'promoted'],
   departs: ['released'],
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Trade value: players and draft picks in the same dollars (pick chart: src/model/pickChart.ts, Baldwin, CC BY-NC)
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface PickValueConfig {
+  /** This season's salary cap, millions: turns the chart's % of cap into dollars. 2026: $301.2M (NFL, Feb 27 2026). */
+  capMillions: number;
+  /** The chart's surplus is per season over the rookie deal: this many seasons. */
+  rookieYears: number;
+  picksPerRound: number;
+  /** A pick whose slot isn't known yet is valued at this pick of its round (16 = the middle). */
+  unknownSlot: number;
+  /**
+   * Future picks. 'round': a pick N drafts away is valued one round later per draft (the trade-market convention:
+   * a future 1st is priced like a 2nd), and past round 7 it keeps the last pick's value. 'rate': its value falls by
+   * `rate` per draft away (Baldwin's worked example uses 10%).
+   */
+  future: { rule: 'round' | 'rate'; rate: number };
+  /** A team's net trade value (millions, over the horizon) that moves its trade grade halfway from 50 to 100 (tanh). */
+  scaleMillions: number;
+  credit: string;
+}
+
+export const PICK_VALUE: PickValueConfig = {
+  capMillions: 301.2,
+  rookieYears: 4,
+  picksPerRound: 32,
+  unknownSlot: 16,
+  future: { rule: 'round', rate: 0.1 },
+  scaleMillions: 25,
+  credit: 'Draft pick values: “NFL Draft Value Chart” by Ben Baldwin, Open Source Football (opensourcefootball.com/posts/2023-02-23-nfl-draft-value-chart), licensed CC BY-NC 4.0 (creativecommons.org/licenses/by-nc/4.0). Changed: its surplus (% of cap per rookie season) is converted to dollars at the 2026 cap over 4 seasons, an unknown slot is valued mid-round, and a future pick one round later per draft away.',
 };
 
 export interface BuyConfig {
