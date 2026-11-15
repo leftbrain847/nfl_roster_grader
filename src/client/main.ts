@@ -7,12 +7,12 @@ import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, type FantasyPos,
+  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, type FantasyPos,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
-import type { ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -53,6 +53,7 @@ const state = {
   weekView: 'fantasy' as 'fantasy' | 'redzone',
   rzTeam: '',
   rzWeek: 'season',
+  metric: 'epa' as keyof typeof UNIT_METRICS,
 };
 
 const players = new Map(data.players.map((p) => [p.id, p]));
@@ -94,6 +95,20 @@ function setHash(h: string): void {
 
 // ------------------------------------------------------------------ league table
 
+const hasSeries = data.teams.some((t) => UNIT_KEYS.some((k) => t.units[k].series));
+/** A unit on the chosen measure (EPA/play, or series success when the data has it). */
+const unitOf = (t: TeamResult, k: UnitKey): Omit<UnitResult, 'series'> => (state.metric === 'series' && t.units[k].series) || t.units[k];
+const metricValue = (x: number, signedEpa = true): string => {
+  const m = UNIT_METRICS[state.metric];
+  return m.percent ? `${(100 * x).toFixed(m.decimals)}%` : signedEpa ? signed(x, m.decimals) : x.toFixed(m.decimals);
+};
+
+function metricChips(): HTMLElement | null {
+  if (!hasSeries) return null;
+  return el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Grade units on' } }, (Object.keys(UNIT_METRICS) as (keyof typeof UNIT_METRICS)[]).map((m) =>
+    chip(UNIT_METRICS[m].label, state.metric === m, () => { state.metric = m; draw(); }, `metric-${m}`)));
+}
+
 function sortedTeams(): TeamResult[] {
   const list = data.teams.filter((t) => state.filter === 'all' || t.verdict === state.filter);
   const val = (t: TeamResult): number | string => {
@@ -101,7 +116,7 @@ function sortedTeams(): TeamResult[] {
       case 'team': return t.team;
       case 'verdict': return VERDICT_ORDER[t.verdict] * 10 - t.playoffOdds;
       case 'odds': return t.playoffOdds;
-      default: return t.units[state.sort].grade;
+      default: return unitOf(t, state.sort).grade;
     }
   };
   return list.sort((a, b) => {
@@ -148,12 +163,13 @@ function leagueView(): HTMLElement {
       el('th', { className: 'c-team', attrs: { scope: 'row' } }, [el('span', { className: 'abbr', text: t.team }), el('span', { className: 'rec', text: t.record })]),
       el('td', { className: 'c-verdict' }, [verdictPill(t.verdict)]),
       el('td', { className: 'c-odds num', text: pct(t.playoffOdds) }),
-      ...UNIT_KEYS.map((k) => el('td', { className: 'c-grade num' }, [el('span', { className: `grade ${band(t.units[k].grade)}`, text: String(t.units[k].grade) })])),
+      ...UNIT_KEYS.map((k) => el('td', { className: 'c-grade num' }, [el('span', { className: `grade ${band(unitOf(t, k).grade)}`, text: String(unitOf(t, k).grade) })])),
     ]),
   );
   for (const r of rows) r.addEventListener('keydown', (e) => { if (e.key === 'Enter') openTeam(r.dataset.team ?? ''); });
   return el('section', { className: 'league' }, [
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Filter by verdict' } }, filters),
+    metricChips(),
     el('div', { className: 'table-wrap' }, [
       el('table', { className: 'board' }, [
         el('thead', {}, [el('tr', {}, [
@@ -163,16 +179,17 @@ function leagueView(): HTMLElement {
         el('tbody', {}, rows),
       ]),
     ]),
-    el('p', { className: 'fine', text: `Grades are 0-100 (50 = league average) from opponent-adjusted EPA per play. Call = buy, sell or stand pat at the trade deadline. Odds: ${PLAYOFF_SIM.label.toLowerCase()}. Tap a team for its sheet and trade targets.` }),
+    el('p', { className: 'fine', text: `Grades are 0-100 (50 = league average) from opponent-adjusted ${state.metric === 'series' ? 'series success (share of plays in series that earned a first down or touchdown); the calls still come from EPA' : 'EPA per play'}. Call = buy, sell or stand pat at the trade deadline. Odds: ${PLAYOFF_SIM.label.toLowerCase()}. Tap a team for its sheet and trade targets.` }),
   ]);
 }
 
 // ------------------------------------------------------------------ team sheet
 
 function unitBar(t: TeamResult, k: UnitKey): HTMLElement {
-  const u = t.units[k];
-  const side = UNITS[k].side === 'offense' ? 'EPA/play' : 'EPA/play allowed';
-  const avg = data.teams.reduce((sum, x) => sum + x.units[k].adjusted, 0) / Math.max(1, data.teams.length);
+  const u = unitOf(t, k);
+  const m = UNIT_METRICS[state.metric];
+  const side = UNITS[k].side === 'offense' ? m.offense : m.defense;
+  const avg = data.teams.reduce((sum, x) => sum + unitOf(x, k).adjusted, 0) / Math.max(1, data.teams.length);
   return el('div', { className: `unit${k === t.weakest ? ' weakest' : ''}` }, [
     el('div', { className: 'unit-head' }, [
       el('span', { className: 'unit-name', text: UNITS[k].long }),
@@ -182,7 +199,7 @@ function unitBar(t: TeamResult, k: UnitKey): HTMLElement {
       el('span', { className: `fill ${band(u.grade)}`, vars: { '--w': `${Math.max(2, u.grade)}%` } }),
       el('span', { className: 'mid' }),
     ]),
-    el('div', { className: 'unit-sub num', text: `${signed(u.adjusted, 3)} ${side} adjusted (avg ${signed(avg, 3)}) · ${signed(u.raw, 3)} raw · ${u.plays} plays` }),
+    el('div', { className: 'unit-sub num', text: `${metricValue(u.adjusted)} ${side} adjusted (avg ${metricValue(avg)}) · ${metricValue(u.raw)} raw · ${u.plays} plays` }),
   ]);
 }
 
@@ -305,7 +322,7 @@ function teamSheet(t: TeamResult): HTMLElement {
           el('div', {}, [el('dt', { text: 'Strength' }), el('dd', { className: 'num', text: `${signed(t.strength, 1)} pts/game` })]),
         ]),
       ]),
-      el('section', { className: 'units' }, UNIT_KEYS.map((k) => unitBar(t, k))),
+      el('section', { className: 'units' }, [metricChips(), ...UNIT_KEYS.map((k) => unitBar(t, k))]),
       el('section', { className: 'units' }, [
         el('h3', { text: 'Offensive line' }),
         el('p', { className: 'fine', text: 'Team level, not opponent-adjusted. Also reflects the QB, backs and scheme.' }),
@@ -892,6 +909,7 @@ function footer(): HTMLElement {
     ]))),
     el('h3', { text: 'Method' }),
     el('p', { text: `Unit grades: EPA per play for pass and rush, offense and defense, adjusted for opponents with a ridge regression (each team's effect is shrunk toward average as if it had ${ADJUST.lambdaPlays.pass} extra average plays, so a half season of noise doesn't dominate), garbage time removed. Grade = normal percentile of the adjusted value among the 32 teams.` }),
+    el('p', { text: 'Series success (toggle on the grade board and team sheets): nflfastR\'s series_success, 1 when the play\'s series (a set of downs) earned a first down or a touchdown. A unit\'s value is the share of its plays in such series, on the same plays as EPA and adjusted for opponents the same way. Calls, odds and needs still use EPA.' }),
     el('p', { text: `Verdict: playoff odds from ${PLAYOFF_SIM.simulations.toLocaleString('en-US')} simulated finishes (team strength blends adjusted EPA with point differential; standings ties broken at random, not by NFL tiebreakers). Odds ${pct(VERDICT.contenderOdds)}+ buy for a unit graded under ${VERDICT.holeGrade}; ${pct(VERDICT.sellerOdds)} or less sell; in between, the schedule left decides.` }),
     el('p', { text: 'Player scores: percentile within the position of a weighted mix of stat percentiles, among players over a per-game volume minimum. Offensive linemen are graded by team instead (Production, then OL); specialists are not ranked. Open data has no good per-player stat for either.' }),
     el('p', { text: 'Offensive line: pass protection = QB pressures (PFR) per dropback; run blocking = rushing yards before contact per carry (PFR). When a buyer\'s weakest unit is pass O or rush O, it shops for the weaker half: the line, or the pass catchers (EPA per non-sack attempt) or backs (yards after contact per carry).' }),

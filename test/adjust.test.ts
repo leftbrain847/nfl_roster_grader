@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ridgeAdjust, type Cell } from '../src/model/adjust.ts';
-import { gradeUnits } from '../src/model/grades.ts';
+import { ADJUST } from '../src/model/config.ts';
+import { gradeUnits, seriesGrades } from '../src/model/grades.ts';
 import type { TeamGame } from '../src/model/types.ts';
 
 // Tiny league: 4 teams with known effects. Every pairing played once each way, 10 plays per cell, no noise.
@@ -76,5 +77,30 @@ describe('opponent adjustment (ridge)', () => {
     expect(g.units.D!.passDefense.rank).toBe(4);
     expect(g.units.A!.passOffense.grade).toBeGreaterThan(g.units.B!.passOffense.grade);
     for (const t of teams) for (const u of Object.values(g.units[t]!)) expect(u.grade).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('series success grades', () => {
+  it('are fitted like EPA: best offense ranks 1, a defense that allows less ranks better; missing column -> null', () => {
+    // series success = 0.65 + offense + defense, no noise
+    const SO: Record<string, number> = { A: 0.1, B: 0.03, C: -0.05, D: -0.08 };
+    const SD: Record<string, number> = { A: -0.06, B: 0.0, C: 0.02, D: 0.04 };
+    const tg: TeamGame[] = league().map((c, i) => {
+      const rate = 0.65 + SO[c.off]! + SD[c.def]!;
+      return {
+        game: `g${i}`, off: c.off, def: c.def, offHome: c.home, passN: 20, passEpa: c.sum, rushN: 10, rushEpa: c.sum,
+        rushHits: 1, covN: 10, covEpa: c.sum, passSs: 20 * rate, rushSs: 10 * rate,
+      };
+    });
+    const s = seriesGrades(tg, [...teams], { ...ADJUST, lambdaPlays: { pass: 0, rush: 0 }, homeField: false, tolerance: 1e-12, maxIterations: 5000 })!;
+    expect(s.A!.passOffense.rank).toBe(1);
+    expect(s.D!.passOffense.rank).toBe(4);
+    expect(s.A!.passDefense.rank).toBe(1);
+    expect(s.D!.rushDefense.rank).toBe(4);
+    const avgDef = Object.values(SD).reduce((a, b) => a + b, 0) / 4;
+    // adjusted is on the league's scale: league mean + (effect - average effect)
+    expect(s.B!.passDefense.adjusted - s.A!.passDefense.adjusted).toBeCloseTo(SD.B! - SD.A!, 4);
+    expect(s.C!.passOffense.raw).toBeCloseTo(0.65 + SO.C! + (4 * avgDef - SD.C!) / 3, 4);
+    expect(seriesGrades(tg.map(({ passSs, ...g }) => g), [...teams])).toBeNull();
   });
 });

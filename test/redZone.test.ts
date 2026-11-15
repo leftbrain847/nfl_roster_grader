@@ -8,7 +8,7 @@ import type { Game } from '../src/model/types.ts';
 const COLS = ['season', 'season_type', 'game_id', 'play_id', 'pass', 'rush', 'epa', 'qb_epa', 'wp', 'success', 'sack', 'qb_hit', 'pass_attempt', 'cpoe',
   'posteam', 'defteam', 'posteam_type', 'location', 'passer_player_id', 'receiver_player_id', 'rusher_player_id',
   'solo_tackle_1_player_id', 'tackle_for_loss_1_player_id', 'sack_player_id', 'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id',
-  'yardline_100', 'two_point_attempt', 'qb_kneel'];
+  'yardline_100', 'series_success', 'two_point_attempt', 'qb_kneel'];
 
 type Play = Partial<Record<(typeof COLS)[number], string | number>>;
 const csv = (plays: Play[]): string => [COLS.join(','), ...plays.map((p) => COLS.map((c) => p[c] ?? '').join(','))].join('\n');

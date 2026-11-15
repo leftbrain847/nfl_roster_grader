@@ -5,7 +5,7 @@ import { ranks } from './stats.ts';
 import { buyTargets, tradeChips } from './buy.ts';
 import { playerContract } from './contracts.ts';
 import { gradeLines, lineRaw, lineStarters, lineTargets } from './line.ts';
-import { weakestUnit } from './grades.ts';
+import { seriesGrades, weakestUnit } from './grades.ts';
 import { seasonState } from './odds.ts';
 import { divisionOf, recordText, scheduleLeft } from './playoffs.ts';
 import { rankPlayers } from './players.ts';
@@ -59,8 +59,10 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     }
   };
 
+  const series = seriesGrades(inp.teamGames, teams);
   const results: TeamResult[] = teams.map((t) => {
     const units = grades.units[t] as TeamResult['units'];
+    if (series) for (const k of UNIT_KEYS) units[k] = { ...units[k], series: series[t]?.[k] };
     const weakest = weakestUnit(units);
     const r = recs[t] ?? { wins: 0, losses: 0, ties: 0, pointDiff: 0, games: 0 };
     const v = decideVerdict({
