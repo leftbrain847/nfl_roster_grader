@@ -913,6 +913,27 @@ export const PERSONNEL_SOURCE: PersonnelSourceConfig = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Matchups: each game this week, unit against unit
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface MatchupConfig {
+  /** Edge = offense unit grade - opposing defense unit grade (both 0-100, 50 = average). Words by edge, best first. */
+  edgeWords: [number, string][];
+  fallbackWord: string;
+  /** Red zone: players listed per offense (most opportunities inside the first RED_ZONE zone, season). */
+  redZonePlayers: number;
+  /** Game designations listed on a matchup card (others, e.g. a full-practice note, are left to the Practice view). */
+  statuses: string[];
+}
+
+export const MATCHUP: MatchupConfig = {
+  edgeWords: [[20, 'Big edge offense'], [8, 'Edge offense'], [-8, 'Even'], [-20, 'Edge defense']],
+  fallbackWord: 'Big edge defense',
+  redZonePlayers: 3,
+  statuses: ['Out', 'Doubtful', 'Questionable'],
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Optional second ranking: a ratings source. OFF in this build.
 // ---------------------------------------------------------------------------------------------------------------
 
