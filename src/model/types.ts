@@ -634,6 +634,26 @@ export interface Personnel {
   slot: PersonnelExact | null;
 }
 
+export interface PracticeRow {
+  id: string;
+  name: string;
+  pos: string;
+  /** Short labels (INJURY.practice / gameStatus); null when blank on the report. */
+  practice: string | null;
+  game: string | null;
+  injury: string;
+}
+
+export interface PracticeReport {
+  week: number;
+  /** True when the injury file has this week's report yet. */
+  published: boolean;
+  /** Latest week in the injury file. */
+  latestWeek: number;
+  note: string;
+  teams: Record<string, PracticeRow[]>;
+}
+
 /** The This week tab. Optional in the output so a data file from before it still loads. */
 export interface ThisWeek {
   /** The first week with a game not yet played (or the last week, after the season). */
@@ -641,6 +661,7 @@ export interface ThisWeek {
   fantasyAllowed: FantasyAllowed;
   redZone?: RedZoneUsage;
   personnel?: Personnel;
+  practice?: PracticeReport;
 }
 
 export interface ModelOutput {

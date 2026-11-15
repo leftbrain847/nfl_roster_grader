@@ -20,6 +20,7 @@ import { currentWeek, fantasyAllowed } from './fantasyAllowed.ts';
 import { redZoneUsage } from './redZone.ts';
 import { depthCharts } from './depth.ts';
 import { buildPersonnel } from './personnel.ts';
+import { practiceReport } from './practice.ts';
 import type { ModelInputs, ModelOutput, SourceStatus, TeamResult } from './types.ts';
 
 export interface BuildOptions {
@@ -141,6 +142,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
       fantasyAllowed: fantasyAllowed(inp.playerWeeks, inp.games, teams),
       redZone: redZoneUsage(inp),
       personnel: buildPersonnel(inp, opts.personnelCfg ?? PERSONNEL_SOURCE),
+      practice: practiceReport(inp.injuries ?? [], currentWeek(inp.games)),
     },
   };
 }
