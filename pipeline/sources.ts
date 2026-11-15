@@ -9,7 +9,8 @@ export type SourceId =
   | 'schedules' | 'pbp' | 'rosters'
   | 'ngs_passing' | 'ngs_receiving' | 'ngs_rushing'
   | 'pfr_pass' | 'pfr_rush' | 'pfr_rec' | 'pfr_def'
-  | 'snaps' | 'contracts' | 'player_weeks' | 'roster_moves' | 'trades' | 'draft';
+  | 'snaps' | 'contracts' | 'player_weeks' | 'roster_moves' | 'trades' | 'draft'
+  | 'depth_charts' | 'injuries';
 
 export type CoverageKind = 'games' | 'weeks' | 'age';
 
@@ -48,6 +49,9 @@ export const SOURCES: SourceDef[] = [
   // nflverse updates the trades file a few times a year, so in-season trades show up as roster moves until it catches up
   { id: 'trades', label: 'Trades', path: 'trades/trades.csv', coverage: 'age', lagDays: 0, maxAgeDays: 400, required: false },
   { id: 'draft', label: 'Draft picks', path: 'draft_picks/draft_picks.csv', coverage: 'age', lagDays: 0, maxAgeDays: 400, required: false },
+  // dated ESPN depth chart snapshots (about two a day), one file per season from 2025 on; ~75 MB by midseason
+  { id: 'depth_charts', label: 'Depth charts', path: 'depth_charts/depth_charts_{season}.csv', coverage: 'age', lagDays: 0, maxAgeDays: 3, required: false },
+  { id: 'injuries', label: 'Injury reports', path: 'injuries/injuries_{season}.csv', coverage: 'weeks', lagDays: 3, required: false },
 ];
 
 export const sourceUrl = (s: SourceDef, season: number): string => `${NFLVERSE_BASE}/${s.path.replace('{season}', String(season))}`;

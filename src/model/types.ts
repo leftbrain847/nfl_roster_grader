@@ -139,6 +139,41 @@ export interface TradeRow {
   conditional?: boolean;
 }
 
+/** One player on one depth chart snapshot. */
+export interface DepthRow {
+  /** Group (pos_grp), position (pos_abb), slot order on the chart, depth (1 = starter). */
+  grp: string;
+  pos: string;
+  slot: number;
+  rank: number;
+  id: string;
+  name: string;
+}
+
+/** A team's newest depth chart and the one it is compared with (DEPTH.minDaysBefore). */
+export interface DepthSnapshot {
+  team: string;
+  /** Snapshot time, ISO (the file's dt). */
+  dt: string;
+  rows: DepthRow[];
+  prevDt: string | null;
+  prev: DepthRow[];
+}
+
+/** One line of the weekly injury report (nflverse injuries). */
+export interface InjuryRow {
+  p: string;
+  t: string;
+  wk: number;
+  name: string;
+  pos: string;
+  /** Game designation: Out, Doubtful, Questionable, or '' (none). */
+  report: string;
+  /** The week's practice participation as nflverse has it (one value a week), or ''. */
+  practice: string;
+  injury: string;
+}
+
 export interface DraftPick { season: number; round: number; pick: number; team: string; gsis: string | null; name: string; pos: string }
 
 export interface ModelInputs {
@@ -161,6 +196,8 @@ export interface ModelInputs {
   rosterHistory?: RosterHistory[];
   trades?: TradeRow[];
   draft?: DraftPick[];
+  depthCharts?: DepthSnapshot[];
+  injuries?: InjuryRow[];
   /** gsis_id -> 0-100, only when the optional ratings source is enabled. */
   ratings?: Record<string, number>;
 }
@@ -493,6 +530,37 @@ export interface RedZoneUsage {
   teams: Record<string, RedZoneTeam>;
 }
 
+export interface DepthEntry {
+  id: string;
+  name: string;
+  rank: number;
+  /** Production score (0-100) and rank at his position group, when he is ranked. */
+  score: number | null;
+  group: PositionGroup | null;
+  /** This week's game designation or a reserve status, short label; null when healthy / not listed. */
+  designation: string | null;
+  /** Versus the compared snapshot: new to this slot, moved up or down (prevRank says from where), or unchanged. */
+  change: 'new' | 'up' | 'down' | null;
+  prevRank: number | null;
+}
+
+export interface DepthSlotView {
+  pos: string;
+  players: DepthEntry[];
+  /** Players on this slot in the compared snapshot who are no longer on it. */
+  gone: { id: string; name: string; prevRank: number }[];
+}
+
+export interface DepthChartView {
+  team: string;
+  /** Snapshot dates, YYYY-MM-DD. */
+  asOf: string;
+  comparedWith: string | null;
+  groups: { name: string; side: 'offense' | 'defense'; slots: DepthSlotView[] }[];
+  /** Number of flagged changes (new, up, down, gone). */
+  changes: number;
+}
+
 /** The This week tab. Optional in the output so a data file from before it still loads. */
 export interface ThisWeek {
   /** The first week with a game not yet played (or the last week, after the season). */
@@ -518,4 +586,6 @@ export interface ModelOutput {
   rankingModes: RankingMode[];
   ratingsCredit: string | null;
   thisWeek?: ThisWeek;
+  /** Team depth charts (team sheets). */
+  depthCharts?: DepthChartView[];
 }

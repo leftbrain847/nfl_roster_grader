@@ -255,3 +255,21 @@ button:focus-visible, tr:focus-visible { outline: 3px solid var(--accent); outli
 .asset-line { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
 .asset-name.link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-align: left; cursor: pointer; text-decoration: underline; }
 .tabs { border-radius: 18px; }
+
+/* depth chart */
+.depth h4, .d-group h4 { margin: 4px 0 2px; font-size: 14px; }
+.d-slots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); }
+.d-slot { display: grid; grid-template-columns: 3.2em 1fr; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); align-items: start; }
+.d-slot:last-child { border-bottom: 0; }
+.d-pos { font-weight: 700; font-size: 13px; color: var(--muted); padding-top: 2px; }
+.d-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.d-entry { font-size: 14px; }
+.d-link { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; border: 0; background: none; padding: 2px 0; text-align: left; min-height: 28px; width: 100%; }
+button.d-link .d-name { color: var(--accent); }
+.d-score { font-size: 12px; font-weight: 700; padding: 0 5px; border-radius: 5px; background: var(--fill); color: var(--g-ink); }
+.d-score.g1, .d-score.g5 { color: var(--g-ink-strong); }
+.d-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 6px; border-radius: 999px; }
+.d-inj { background: var(--sell-bg); color: var(--sell); }
+.d-new, .d-up { background: var(--buy-bg); color: var(--buy); }
+.d-down { background: var(--pat-bg); color: var(--pat); }
+.d-gone { color: var(--muted); font-size: 13px; text-decoration: line-through; }

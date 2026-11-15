@@ -14,7 +14,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { GAME_LOG_VERSION, PBP_VERSION, RATINGS_SOURCE, type RatingsSourceConfig } from '../src/model/config.ts';
+import { DEPTH_VERSION, GAME_LOG_VERSION, PBP_VERSION, RATINGS_SOURCE, type RatingsSourceConfig } from '../src/model/config.ts';
 import { buildModel } from '../src/model/index.ts';
 import { matchLinemen } from '../src/model/line.ts';
 import { parseRatings } from '../src/model/ratings.ts';
@@ -57,7 +57,7 @@ export interface Snapshot {
 }
 
 /** Sources whose saved layout can change with config: a last good copy with another version is not reused. */
-export const SNAPSHOT_VERSION: Partial<Record<SourceId, number>> = { player_weeks: GAME_LOG_VERSION, pbp: PBP_VERSION };
+export const SNAPSHOT_VERSION: Partial<Record<SourceId, number>> = { player_weeks: GAME_LOG_VERSION, pbp: PBP_VERSION, depth_charts: DEPTH_VERSION };
 
 export const DATA_DIR = 'data';
 export const OUTPUT_FILE = 'data/roster_grader.json';
@@ -233,6 +233,8 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
     rosterHistory: get('roster_moves', []),
     trades: get('trades', []),
     draft: get('draft', []),
+    depthCharts: get('depth_charts', []),
+    injuries: get('injuries', []),
     ratings,
   };
   const dataAsOf = [...used.values()].map((s) => s.lastModified ?? '').filter((d) => d && d <= opts.today).sort().pop() ?? opts.today;
