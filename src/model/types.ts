@@ -43,6 +43,8 @@ export interface PlayerGame {
   tkl?: number; tfl?: number; sck?: number; qbh?: number; pd?: number; int?: number; ff?: number;
   /** Big-play EPA (BIG_PLAYS in config.ts): the EPA taken from the offense on plays he made one, his share. */
   big?: number;
+  /** Red zone: [targets, carries] for each of RED_ZONE.zones in order, flattened. Absent when all zero. */
+  rz?: number[];
 }
 
 export interface PfrPassRow { p: string; g: string; t: string; pressured: number; sacked: number }
@@ -459,11 +461,37 @@ export interface FantasyAllowed {
   teams: Record<string, Partial<Record<FantasyPos, { season: FantasyAllowedWindow; recent: FantasyAllowedWindow | null }>>>;
 }
 
+export interface RedZonePlayer {
+  id: string;
+  name: string;
+  pos: string;
+  /** Season [targets, carries] per zone, flattened like PlayerGame.rz. */
+  season: number[];
+  /** [week, ...counts] for each week he had a red zone target or carry. */
+  weeks: number[][];
+}
+
+export interface RedZoneTeam {
+  /** Team totals, season and by week ([week, ...counts]). */
+  season: number[];
+  weeks: number[][];
+  /** Everyone with a red zone target or carry, most opportunities in the first zone first. */
+  players: RedZonePlayer[];
+}
+
+export interface RedZoneUsage {
+  zones: { key: string; label: string; maxYardline: number }[];
+  /** Weeks with play-by-play. */
+  weeks: number[];
+  teams: Record<string, RedZoneTeam>;
+}
+
 /** The This week tab. Optional in the output so a data file from before it still loads. */
 export interface ThisWeek {
   /** The first week with a game not yet played (or the last week, after the season). */
   week: number;
   fantasyAllowed: FantasyAllowed;
+  redZone?: RedZoneUsage;
 }
 
 export interface ModelOutput {

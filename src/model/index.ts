@@ -17,6 +17,7 @@ import { assertRatingsAllowed } from './ratings.ts';
 import { round } from './stats.ts';
 import { decideVerdict } from './verdict.ts';
 import { currentWeek, fantasyAllowed } from './fantasyAllowed.ts';
+import { redZoneUsage } from './redZone.ts';
 import type { ModelInputs, ModelOutput, SourceStatus, TeamResult } from './types.ts';
 
 export interface BuildOptions {
@@ -132,6 +133,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     thisWeek: {
       week: currentWeek(inp.games),
       fantasyAllowed: fantasyAllowed(inp.playerWeeks, inp.games, teams),
+      redZone: redZoneUsage(inp),
     },
   };
 }

@@ -1,16 +1,17 @@
 /**
  * Roster Grader page. Reads the model output baked in at build time (no network). Tabs: This week (fantasy points
- * allowed by position), Value (production and fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
+ * allowed by position, red zone usage), Value (production and fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
  * team, and the team grade board with its buy / sell calls and team sheets). Text goes in as text, never HTML.
  */
 import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE, FANTASY_ALLOWED, THIS_WEEK, type FantasyPos,
+  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, type FantasyPos,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
+import { share } from '../model/redZone.ts';
 import type { ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
@@ -49,6 +50,9 @@ const state = {
   faPos: 'WR' as FantasyPos,
   faWindow: 'season' as 'season' | 'recent',
   faAdjusted: true,
+  weekView: 'fantasy' as 'fantasy' | 'redzone',
+  rzTeam: '',
+  rzWeek: 'season',
 };
 
 const players = new Map(data.players.map((p) => [p.id, p]));
@@ -817,11 +821,61 @@ function fantasyAllowedView(): HTMLElement {
   ]);
 }
 
+function redZoneView(): HTMLElement {
+  const rz = data.thisWeek?.redZone;
+  const head = [
+    el('h2', { className: 'pos-title', text: 'Red zone usage' }),
+    el('p', { className: 'fine', text: `Targets and carries with the ball snapped ${RED_ZONE.zones.map((z) => `at or inside the ${z.maxYardline}`).join(' and ')}, and each player's share of his team's. From play-by-play; every play counts except kneels, spikes and two-point tries.` }),
+  ];
+  const codes = rz ? Object.keys(rz.teams).sort() : [];
+  if (!rz || !codes.length) return el('div', { className: 'rankings' }, [...head, el('p', { className: 'fine', text: 'No data yet: this needs play-by-play.' })]);
+  if (!codes.includes(state.rzTeam)) state.rzTeam = codes[0] as string;
+  const team = rz.teams[state.rzTeam] as NonNullable<typeof rz>['teams'][string];
+  const wk = state.rzWeek === 'season' ? null : Number(state.rzWeek);
+  const countsOf = (season: number[], weeks: number[][]): number[] | null => {
+    if (wk === null) return season;
+    const row = weeks.find((w) => w[0] === wk);
+    return row ? row.slice(1) : null;
+  };
+  const totals = countsOf(team.season, team.weeks) ?? Array(2 * rz.zones.length).fill(0);
+  const rows = team.players.map((p) => ({ p, c: countsOf(p.season, p.weeks) })).filter((x): x is { p: typeof x.p; c: number[] } => !!x.c);
+  const cell = (n: number, total: number): HTMLElement => el('td', { className: 'num', text: n ? `${n} · ${Math.round(100 * share(n, total))}%` : '-' });
+  const kinds = ['Tgt', 'Car'];
+  return el('div', { className: 'rankings' }, [
+    ...head,
+    el('div', { className: 'picks' }, [
+      selectBox('Team', state.rzTeam, codes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()]), (v) => { state.rzTeam = v; draw(); }),
+      selectBox('Period', state.rzWeek, [['season', 'Season'], ...rz.weeks.slice().reverse().map((w): [string, string] => [String(w), `Week ${w}`])], (v) => { state.rzWeek = v; draw(); }),
+    ]),
+    rows.length ? el('div', { className: 'table-wrap' }, [
+      el('table', { className: 'log' }, [
+        el('thead', {}, [el('tr', {}, [
+          el('th', { className: 'left', text: 'Player', attrs: { scope: 'col' } }),
+          ...rz.zones.flatMap((z) => kinds.map((k) => el('th', { text: `${k} ${z.maxYardline}`, attrs: { scope: 'col', title: `${k === 'Tgt' ? 'Targets' : 'Carries'} ${z.label.toLowerCase()}, and share of the team's` } }))),
+        ])]),
+        el('tbody', {}, rows.map(({ p, c }) => el('tr', {}, [
+          el('th', { className: 'left', attrs: { scope: 'row' }, text: `${p.name}${p.pos ? ` ${p.pos}` : ''}` }),
+          ...c.map((n, i) => cell(n, totals[i] ?? 0)),
+        ]))),
+        el('tfoot', {}, [el('tr', {}, [
+          el('th', { className: 'left', attrs: { scope: 'row' }, text: 'Team' }),
+          ...totals.map((n) => el('td', { className: 'num', text: String(n) })),
+        ])]),
+      ]),
+    ]) : el('p', { className: 'fine', text: 'No red zone targets or carries in this period.' }),
+    el('p', { className: 'fine', text: `Each cell: count · share of the team's. ${rz.zones.map((z) => `${z.maxYardline} = ${z.label.toLowerCase()}`).join(', ')}.` }),
+  ]);
+}
+
 function weekView(): HTMLElement {
   const wk = data.thisWeek?.week;
   return el('section', { className: 'rankings' }, [
     el('p', { className: 'eyebrow', text: wk ? `Week ${wk}` : '' }),
-    fantasyAllowedView(),
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'This week view' } }, [
+      chip('Fantasy allowed', state.weekView === 'fantasy', () => { state.weekView = 'fantasy'; draw(); }, 'fantasy'),
+      chip('Red zone', state.weekView === 'redzone', () => { state.weekView = 'redzone'; draw(); }, 'redzone'),
+    ]),
+    state.weekView === 'redzone' ? redZoneView() : fantasyAllowedView(),
   ]);
 }
 
@@ -844,6 +898,7 @@ function footer(): HTMLElement {
     el('p', { text: 'Player pages (Production, then search, or "Game log and contract" on a ranked player): one line per game from the nflverse weekly stats, for every quarterback, back, receiver, tight end and defender with a stat this season. Snap% is his share of the team\'s offense or defense snaps. PPR = fantasy points with a point per catch. Contract years show base salary, cap hit and cash paid.' }),
     el('p', { text: `Value: cap hit is what a player counts against his team's cap this season (from the contract's yearly rows). Production per $: a ranked player's production score is worth the cap hit at the same percentile of pay at his position; surplus is that worth minus his own cap hit. Cheap producers (often rookie deals) come out best and expensive players who aren't producing worst. Pay is steep at the top of a position, so its highest-paid players only break even by being its very best producers, and a few percentile points there can move worth by many millions. Cap value by team (Front office) adds the surplus up by team; it ignores dead money, linemen, specialists and players without enough play to rank, teams that spend more on ranked players tend to score lower, and a quarterback's surplus can swing a team's total. Fantasy per $ = PPR points per $1M of cap hit. Best rosters and lineups are found exactly, with cap hits rounded up to the nearest $${Math.max(VALUE.fantasy.budgetStepMillions, VALUE.roster.budgetStepMillions)}M; the weekly lineup uses the latest week with every game played.` }),
     el('p', { text: `Fantasy points allowed (This week): PPR points per game each defense gave up to quarterbacks, backs (fullbacks included), receivers and tight ends, from the nflverse weekly player stats, over the season and the last ${FANTASY_ALLOWED.recentWeeks} weeks played. Adjusted for the offenses faced with the unit grades' ridge regression on game totals (points = average + offense + defense + home), each team shrunk toward average as if it had ${FANTASY_ALLOWED.lambdaGames} extra average games. Rank 1 = allows the most.` }),
+    el('p', { text: `Red zone usage (This week): targets and carries from play-by-play with the ball snapped ${RED_ZONE.zones.map((z) => `at or inside the ${z.maxYardline}`).join(' or ')}, by player and week, with each player's share of his team's. A sack or an aborted play is not a target; kneels, spikes and two-point tries are left out.` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, trades and draft picks, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),

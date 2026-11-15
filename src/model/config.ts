@@ -756,6 +756,27 @@ export const FANTASY_ALLOWED: FantasyAllowedConfig = {
   rankLabel: '1st = allows the most',
 };
 
+/**
+ * Red zone usage: targets and carries with the ball snapped at or inside each zone's yard line (play-by-play
+ * `yardline_100`, yards from the opponent's end zone), per player per week, and each player's share of his team's.
+ * Every play counts (no garbage-time filter), as for the other player stats; kneels, spikes and two-point tries don't.
+ */
+export interface RedZoneConfig {
+  /** Inside-out order is not required; each zone is counted on its own. Changing these needs PBP_VERSION bumped. */
+  zones: { key: string; label: string; maxYardline: number }[];
+}
+
+export const RED_ZONE: RedZoneConfig = {
+  zones: [
+    { key: 'in20', label: 'Inside the 20', maxYardline: 20 },
+    { key: 'in10', label: 'Inside the 10', maxYardline: 10 },
+  ],
+};
+
+/** Layout version of the saved play-by-play extract. Bump when RED_ZONE.zones or the extract's fields change: a last
+ * good copy with another version is then not reused (it would hold other cutoffs). */
+export const PBP_VERSION = 1;
+
 // ---------------------------------------------------------------------------------------------------------------
 // Optional second ranking: a ratings source. OFF in this build.
 // ---------------------------------------------------------------------------------------------------------------
