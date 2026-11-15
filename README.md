@@ -96,6 +96,19 @@ Everything tunable is in `src/model/config.ts`.
 
 Data: [nflverse](https://github.com/nflverse) (nflfastR play-by-play and EPA, schedules, rosters), NFL Next Gen Stats, Pro Football Reference, OverTheCap, all via nflverse. Not affiliated with the NFL or any team.
 
+### Data under their own licenses
+
+This repo's code license does not cover these. Each keeps its own terms, which the page states where the data appears.
+
+| What | Where in this repo / on the page | License | What we do about it |
+| --- | --- | --- | --- |
+| Draft pick values (Ben Baldwin, Open Source Football) | `src/model/pickChart.ts`; trade grades | CC BY-NC 4.0 | Credit on the page; no commercial use of that file or what's built from it |
+| FTN participation (FTN Data via nflverse) | `data/sources/participation*.json` (per-play groupings, written by the nightly refresh); the page's exact personnel tables | CC BY-SA 4.0 | Credit with a license link and the changes made (summed by team and grouping, joined to nflfastR EPA). ShareAlike: those files and tables are offered under CC BY-SA 4.0 too. It does not reach the rest of the page or the code, which are separate works |
+
+Not used from FTN: the snap-count estimate's two scales were fitted against 2025 FTN numbers (two constants, not FTN data), and the estimate itself uses only PFR snap counts.
+
+If a new source comes with a license, add it here and on the page, or don't add the source.
+
 ## Budget (friends target)
 
 Read-only page: no runs or rooms, so it costs only the requests to load it.
