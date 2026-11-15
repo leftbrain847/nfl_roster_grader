@@ -273,3 +273,4 @@ button.d-link .d-name { color: var(--accent); }
 .d-new, .d-up { background: var(--buy-bg); color: var(--buy); }
 .d-down { background: var(--pat-bg); color: var(--pat); }
 .d-gone { color: var(--muted); font-size: 13px; text-decoration: line-through; }
+.ext { color: var(--fg); font-weight: 600; overflow-wrap: anywhere; user-select: all; }

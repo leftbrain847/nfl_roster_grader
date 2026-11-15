@@ -1,18 +1,18 @@
 /**
  * Roster Grader page. Reads the model output baked in at build time (no network). Tabs: This week (fantasy points
- * allowed by position, red zone usage), Value (production and fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
+ * allowed by position, red zone usage, personnel), Value (production and fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
  * team, and the team grade board with its buy / sell calls and team sheets). Text goes in as text, never HTML.
  */
 import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, type FantasyPos,
+  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, type FantasyPos,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
-import type { DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -50,7 +50,8 @@ const state = {
   faPos: 'WR' as FantasyPos,
   faWindow: 'season' as 'season' | 'recent',
   faAdjusted: true,
-  weekView: 'fantasy' as 'fantasy' | 'redzone',
+  weekView: 'fantasy' as 'fantasy' | 'redzone' | 'personnel',
+  pTeam: '',
   rzTeam: '',
   rzWeek: 'season',
   metric: 'epa' as keyof typeof UNIT_METRICS,
@@ -920,6 +921,76 @@ function redZoneView(): HTMLElement {
   ]);
 }
 
+const pctText = (x: number): string => `${Math.round(100 * x)}%`;
+
+function exactTable(ex: PersonnelExact, team: string): HTMLElement | null {
+  const t = ex.teams[team];
+  if (!t) return null;
+  const league = new Map(ex.league.map((g) => [g.code, g]));
+  return el('div', { className: 'shop' }, [
+    el('h4', { text: `${ex.season} exact: ${team}` }),
+    el('p', { className: 'fine', text: `11 ${pctText(t.p11)} · 12 ${pctText(t.p12)} · heavy ${pctText(t.heavy)} of ${t.plays} plays. ${ex.credit}.` }),
+    el('div', { className: 'table-wrap' }, [el('table', { className: 'log' }, [
+      el('thead', {}, [el('tr', {}, ['Group', 'Plays', 'Share', 'EPA/play', 'League share', 'League EPA'].map((h, i) => el('th', { className: i ? '' : 'left', text: h, attrs: { scope: 'col' } })))]),
+      el('tbody', {}, t.groupings.map((g) => el('tr', {}, [
+        el('th', { className: 'left', attrs: { scope: 'row' }, text: g.code }),
+        el('td', { className: 'num', text: String(g.plays) }),
+        el('td', { className: 'num', text: pctText(g.rate) }),
+        el('td', { className: 'num', text: g.epa === null ? '-' : signed(g.epa, 2) }),
+        el('td', { className: 'num', text: league.get(g.code) ? pctText(league.get(g.code)!.rate) : '-' }),
+        el('td', { className: 'num', text: league.get(g.code)?.epa != null ? signed(league.get(g.code)!.epa as number, 2) : '-' }),
+      ]))),
+    ])]),
+  ]);
+}
+
+function personnelView(): HTMLElement {
+  const pe = data.thisWeek?.personnel;
+  const link = el('span', { className: 'ext', text: `${PERSONNEL.exactLink.label} (${PERSONNEL.exactLink.url})` });
+  const head = [
+    el('h2', { className: 'pos-title', text: 'Personnel' }),
+    el('p', { className: 'fine' }, [
+      el('span', { text: `${pe?.slot ? `Exact: ${pe.slot.credit}.` : `${PERSONNEL.label}: average backs, tight ends and receivers on the field per offensive snap, and the share of snaps in 11, 12 and heavy sets (2+ TE or 2+ RB) those averages imply. Typical error against FTN's exact ${PERSONNEL.fittedOn} numbers: a few points over a season, more for one game (see Method).`} Exact current numbers: ` }),
+      link,
+      el('span', { text: '.' }),
+    ]),
+  ];
+  const codes = pe ? Object.keys(pe.slot?.teams ?? pe.estimate).sort() : [];
+  if (!pe || !codes.length) return el('div', { className: 'rankings' }, [...head, el('p', { className: 'fine', text: 'No data yet: this needs snap counts.' })]);
+  if (!codes.includes(state.pTeam)) state.pTeam = codes[0] as string;
+  const team = state.pTeam;
+  const est = pe.estimate[team];
+  const slot = pe.slot?.teams[team];
+  const exact = pe.exactCurrent ?? pe.exactPrev;
+  const rateCells = (x: { p11: number; p12: number; heavy: number }): HTMLElement[] => [x.p11, x.p12, x.heavy].map((v) => el('td', { className: 'num', text: pctText(v) }));
+  const table = slot
+    ? el('table', { className: 'log' }, [
+      el('thead', {}, [el('tr', {}, ['Wk', 'Plays', '11', '12', 'Heavy'].map((h, i) => el('th', { className: i ? '' : 'left', text: h, attrs: { scope: 'col' } })))]),
+      el('tbody', {}, (slot.weeks ?? []).map((w) => el('tr', {}, [el('th', { className: 'num left', attrs: { scope: 'row' }, text: String(w.wk) }), el('td', { className: 'num', text: String(w.plays) }), ...rateCells(w)]))),
+      el('tfoot', {}, [el('tr', {}, [el('th', { className: 'left', attrs: { scope: 'row' }, text: 'Season' }), el('td', { className: 'num', text: String(slot.plays) }), ...rateCells(slot)])]),
+    ])
+    : est ? el('table', { className: 'log' }, [
+      el('thead', {}, [el('tr', {}, ['Wk', 'Opp', 'RB', 'TE', 'WR', '11', '12', 'Heavy'].map((h, i) => el('th', { className: i < 2 ? 'left' : '', text: h, attrs: { scope: 'col', title: ['Week', 'Opponent', 'Backs on the field per snap (avg)', 'Tight ends per snap (avg)', 'Receivers per snap (avg)', 'Share of snaps in 11 (est.)', 'Share in 12 (est.)', 'Share with 2+ TE or 2+ RB (est.)'][i] ?? h } })))]),
+      el('tbody', {}, est.weeks.map((w) => el('tr', {}, [
+        el('th', { className: 'num left', attrs: { scope: 'row' }, text: String(w.wk) }),
+        el('td', { className: 'left', text: w.opp }),
+        ...[w.rb, w.te, w.wr].map((v) => el('td', { className: 'num', text: v.toFixed(2) })),
+        ...rateCells(w),
+      ]))),
+      el('tfoot', {}, [el('tr', {}, [
+        el('th', { className: 'left', attrs: { scope: 'row', colspan: '2' }, text: 'Season' }),
+        ...[est.season.rb, est.season.te, est.season.wr].map((v) => el('td', { className: 'num', text: v.toFixed(2) })),
+        ...rateCells(est.season),
+      ])]),
+    ]) : null;
+  return el('div', { className: 'rankings' }, [
+    ...head,
+    el('div', { className: 'picks' }, [selectBox('Team', team, codes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()]), (v) => { state.pTeam = v; draw(); })]),
+    table ? el('div', { className: 'table-wrap' }, [table]) : el('p', { className: 'fine', text: 'No snap counts for this team yet.' }),
+    exact ? exactTable(exact, team) : null,
+  ]);
+}
+
 function weekView(): HTMLElement {
   const wk = data.thisWeek?.week;
   return el('section', { className: 'rankings' }, [
@@ -927,8 +998,9 @@ function weekView(): HTMLElement {
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'This week view' } }, [
       chip('Fantasy allowed', state.weekView === 'fantasy', () => { state.weekView = 'fantasy'; draw(); }, 'fantasy'),
       chip('Red zone', state.weekView === 'redzone', () => { state.weekView = 'redzone'; draw(); }, 'redzone'),
+      chip('Personnel', state.weekView === 'personnel', () => { state.weekView = 'personnel'; draw(); }, 'personnel'),
     ]),
-    state.weekView === 'redzone' ? redZoneView() : fantasyAllowedView(),
+    state.weekView === 'redzone' ? redZoneView() : state.weekView === 'personnel' ? personnelView() : fantasyAllowedView(),
   ]);
 }
 
@@ -954,10 +1026,13 @@ function footer(): HTMLElement {
     el('p', { text: `Fantasy points allowed (This week): PPR points per game each defense gave up to quarterbacks, backs (fullbacks included), receivers and tight ends, from the nflverse weekly player stats, over the season and the last ${FANTASY_ALLOWED.recentWeeks} weeks played. Adjusted for the offenses faced with the unit grades' ridge regression on game totals (points = average + offense + defense + home), each team shrunk toward average as if it had ${FANTASY_ALLOWED.lambdaGames} extra average games. Rank 1 = allows the most.` }),
     el('p', { text: `Red zone usage (This week): targets and carries from play-by-play with the ball snapped ${RED_ZONE.zones.map((z) => `at or inside the ${z.maxYardline}`).join(' or ')}, by player and week, with each player's share of his team's. A sack or an aborted play is not a target; kneels, spikes and two-point tries are left out.` }),
     el('p', { text: `Depth charts (team sheets): ESPN's depth charts as nflverse snapshots them (about twice a day). The newest snapshot is compared with the newest one from at least ${DEPTH.minDaysBefore} ${DEPTH.minDaysBefore === 1 ? 'day' : 'days'} earlier: New = not on that slot before, Up / Down = moved on it, Off the chart = was on it. Designations are this week's injury report (nflverse injuries) or a reserve list on the weekly roster.` }),
+    el('p', { text: `Personnel (This week), ${PERSONNEL.label.toLowerCase()}: average backs (fullbacks included), tight ends and receivers on the field per offensive snap = that position's offense snaps over the team's (PFR snap counts). If a team only used 1 or 2 tight ends, its 2-TE share would be the TE average minus 1; real teams spread wider, so that share is scaled down by factors fitted on ${PERSONNEL.fittedOn}: heavy (2+ TE or 2+ RB) = ${PERSONNEL.heavyScale} × ((TE − 1) + (RB − 1)), 12 = ${PERSONNEL.twoTeScale} × (TE − 1), 11 = 1 − heavy − (WR − 3), each part clamped to 0-1. Against FTN's exact ${PERSONNEL.fittedOn} participation (fitted leaving each team out): over a season, mean error about 4 points for 11, 5-6 for 12 and 4 for heavy, rank correlation 0.85 / 0.71 / 0.90; for one game about 6 / 8 / 5 points. Exact current numbers: ${PERSONNEL.exactLink.url}. When FTN participation for a season is on nflverse, the exact shares and EPA per play by grouping are shown for it (${PERSONNEL.ftnCredit}; tables derived from it are shared under the same license).` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, trades and draft picks, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
     el('p', { text: PICK_VALUE.credit }),
+    data.thisWeek?.personnel?.exactCurrent || data.thisWeek?.personnel?.exactPrev ? el('p', { text: `Exact personnel: ${PERSONNEL.ftnCredit}, creativecommons.org/licenses/by-sa/4.0. Changed: summed by team and grouping and joined to nflfastR EPA; those tables are shared under CC BY-SA 4.0.` }) : null,
+    data.thisWeek?.personnel?.slot ? el('p', { text: `Exact current personnel: ${data.thisWeek.personnel.slot.credit}` }) : null,
     data.ratingsCredit ? el('p', { text: `Ratings: ${data.ratingsCredit}` }) : null,
   ]);
 }
