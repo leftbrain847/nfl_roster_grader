@@ -654,6 +654,45 @@ export interface PracticeReport {
   teams: Record<string, PracticeRow[]>;
 }
 
+/** One offense against one defense, for one play type. */
+export interface UnitClash {
+  offGrade: number;
+  offRank: number;
+  defGrade: number;
+  defRank: number;
+  /** offGrade - defGrade. */
+  edge: number;
+  word: string;
+}
+
+/** One team's offense against the other's defense in a game this week. */
+export interface MatchupSide {
+  team: string;
+  opp: string;
+  pass: UnitClash;
+  rush: UnitClash;
+  /** What the opponent's defense allows per game by position (season, adjusted), with its rank (1 = allows the most). */
+  fantasyAllowed: Partial<Record<FantasyPos, { adjusted: number; rank: number }>>;
+  /** This offense's top red zone players: share of the team's targets + carries inside each zone (season). */
+  redZone: { id: string; name: string; pos: string; shares: number[] }[];
+  /** This offense's personnel, season to date: exact (slot) when on, else estimated. */
+  personnel: { p11: number; p12: number; heavy: number; estimated: boolean } | null;
+  /** This team's players with a game designation this week. */
+  status: PracticeRow[];
+}
+
+export interface Matchup {
+  id: string;
+  week: number;
+  gameday: string;
+  home: string;
+  away: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  /** Away offense first, then home offense. */
+  sides: [MatchupSide, MatchupSide];
+}
+
 /** The This week tab. Optional in the output so a data file from before it still loads. */
 export interface ThisWeek {
   /** The first week with a game not yet played (or the last week, after the season). */
@@ -662,6 +701,7 @@ export interface ThisWeek {
   redZone?: RedZoneUsage;
   personnel?: Personnel;
   practice?: PracticeReport;
+  matchups?: Matchup[];
 }
 
 export interface ModelOutput {
