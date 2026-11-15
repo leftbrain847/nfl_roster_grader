@@ -22,7 +22,8 @@ type SortKey = 'team' | 'verdict' | 'odds' | UnitKey;
 type View = 'week' | 'value' | 'players' | 'office' | 'moves';
 
 const state = {
-  view: 'value' as View,
+  /** Opens on This week (the current week's matchups) when the data has it. */
+  view: (data.thisWeek ? 'week' : 'value') as View,
   sort: 'odds' as SortKey,
   desc: true,
   filter: 'all' as Verdict | 'all',
@@ -578,7 +579,7 @@ function playersView(): HTMLElement {
 const chip = (text: string, on: boolean, onClick: () => void, key?: string): HTMLElement =>
   el('button', { className: `chip${on ? ' on' : ''}`, text, attrs: { 'aria-pressed': String(on), ...(key ? { 'data-sub': key } : {}) }, onClick });
 // without cap hits (sample data, or contracts missing) the value views are empty: open on the board instead
-if (!data.value.players.length) {
+if (!data.thisWeek && !data.value.players.length) {
   state.view = 'office';
   state.officeView = 'board';
 }
