@@ -15,7 +15,8 @@ on:
   schedule:
     - cron: '7 6 * * *'   # 06:07 UTC = 1:07 AM EST (2:07 AM EDT); before the index refresh at 06:47 UTC
     # Evening refresh for the injury reports: Wed-Fri at 7:13 PM America/New_York. Cron runs in UTC, so both
-    # offsets are listed and the gate job keeps only the one that is 7 PM in New York that day:
+    # offsets are listed and the gate job keeps only the one for New York's current offset (these strings are
+    # repeated in the gate; change both together):
     # EDT (summer) 23:13 UTC Wed-Fri; EST (winter) 00:13 UTC Thu-Sat.
     - cron: '13 23 * * 3,4,5'
     - cron: '13 0 * * 4,5,6'
@@ -45,10 +46,18 @@ jobs:
           set -euo pipefail
           run=true
           kind=nightly
-          if [ "$SCHEDULE" = '13 23 * * 3,4,5' ] || [ "$SCHEDULE" = '13 0 * * 4,5,6' ]; then
-            kind=evening
-            hour=$(TZ=America/New_York date +%H)
-            if [ "$hour" != 19 ]; then run=false; echo "Not 7 PM in New York (hour $hour): skipping this slot."; fi
+          # each evening slot belongs to one DST state: 23:13 UTC to EDT, 00:13 UTC to EST. Checking the zone, not
+          # only the hour, means a slot GitHub runs late can't pass for the other one (no double run).
+          zone=$(TZ=America/New_York date +%Z)
+          hour=$(TZ=America/New_York date +%H)
+          case "$SCHEDULE" in
+            '13 23 * * 3,4,5') kind=evening; want=EDT ;;
+            '13 0 * * 4,5,6') kind=evening; want=EST ;;
+            *) want='' ;;
+          esac
+          if [ -n "$want" ] && { [ "$zone" != "$want" ] || [ "$hour" != 19 ]; }; then
+            run=false
+            echo "Slot is for 7 PM $want; it is $hour:xx $zone in New York: skipping."
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
@@ -135,7 +144,7 @@ jobs:
           git add data web/roster_grader.html
           if git diff --cached --quiet; then echo "No changes; nothing to commit."; exit 0; fi
           git -c user.name="roster-grader-bot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -q -m "data: ${KIND:-nightly} refresh $(date -u +%F)"
+            commit -q -m "data: ${KIND:-nightly} refresh $(TZ=America/New_York date +%F)"
           # The token is used for this push only; it is never written to .git/config.
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           # Fails (and commits nothing to main) if main moved since the build; the next night retries.
