@@ -709,6 +709,54 @@ export interface BuyConfig {
 export const BUY: BuyConfig = { targetsPerTeam: 5, fromVerdicts: ['sell'], chipsPerSeller: 5, statuses: ['ACT'] };
 
 // ---------------------------------------------------------------------------------------------------------------
+// This week tab: the current week, and fantasy points allowed by each defense
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface ThisWeekConfig {
+  /** Tab label. */
+  label: string;
+}
+
+export const THIS_WEEK: ThisWeekConfig = { label: 'This week' };
+
+export type FantasyPos = 'QB' | 'RB' | 'WR' | 'TE';
+
+/**
+ * Fantasy points allowed: the PPR points each defense gave up to each position, per game, from the nflverse weekly
+ * player stats (the opponent column says which defense). Opponent-adjusted the same way as the unit grades: a ridge
+ * regression, points(game) = mu + offense[team] + defense[opponent] + home, one cell per team-game, each team effect
+ * shrunk toward average as if it had `lambdaGames` extra average games.
+ */
+export interface FantasyAllowedConfig {
+  positions: FantasyPos[];
+  /** nflverse position -> fantasy position. Positions not listed don't count (a QB catching a pass counts as QB). */
+  positionMap: Record<string, FantasyPos>;
+  /** The game-log column that holds PPR points (the same column in the QB and skill logs). */
+  pointsColumn: string;
+  /** "Recent" window: the last N weeks played (by week number, so a bye week counts as one of them). */
+  recentWeeks: number;
+  /** Ridge penalty, in games. 0 = plain least squares. */
+  lambdaGames: number;
+  homeField: boolean;
+  tolerance: number;
+  maxIterations: number;
+  /** Rank 1 = the defense that allows the MOST points (the best matchup for a fantasy player). */
+  rankLabel: string;
+}
+
+export const FANTASY_ALLOWED: FantasyAllowedConfig = {
+  positions: ['QB', 'RB', 'WR', 'TE'],
+  positionMap: { QB: 'QB', RB: 'RB', FB: 'RB', HB: 'RB', WR: 'WR', TE: 'TE' },
+  pointsColumn: 'PPR',
+  recentWeeks: 4,
+  lambdaGames: 3,
+  homeField: true,
+  tolerance: 1e-9,
+  maxIterations: 500,
+  rankLabel: '1st = allows the most',
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Optional second ranking: a ratings source. OFF in this build.
 // ---------------------------------------------------------------------------------------------------------------
 
