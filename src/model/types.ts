@@ -30,6 +30,10 @@ export interface TeamGame {
   /** Non-sack pass attempts and their EPA (coverage half of pass D). */
   covN: number;
   covEpa: number;
+  /** Sums of nflfastR series_success (1 = the play's series earned a first down or touchdown) over the pass and rush
+   * plays counted above. Absent in a saved copy from before series success. */
+  passSs?: number;
+  rushSs?: number;
 }
 
 /** One player's counting stats in one game, from play-by-play (all plays, no garbage-time filter). */
@@ -186,6 +190,9 @@ export interface UnitResult {
   plays: number;
   grade: number;
   rank: number;
+  /** The same unit on series success (0-1: share of plays in series that earned a first down or TD), adjusted the
+   * same way. Shown beside EPA; verdicts use EPA. Absent when the play-by-play has no series column. */
+  series?: Omit<UnitResult, 'series'>;
 }
 
 export interface LineResult {

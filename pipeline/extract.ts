@@ -57,7 +57,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
   r.require('season', 'season_type', 'game_id', 'pass', 'rush', 'epa', 'qb_epa', 'wp', 'success', 'sack', 'qb_hit', 'pass_attempt', 'cpoe',
     'posteam', 'defteam', 'posteam_type', 'location', 'passer_player_id', 'receiver_player_id', 'rusher_player_id',
     'solo_tackle_1_player_id', 'tackle_for_loss_1_player_id', 'sack_player_id', 'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id',
-    'yardline_100');
+    'yardline_100', 'series_success');
   const zones = RED_ZONE.zones;
   /** Red zone counts: slot 2i = targets in zone i, 2i + 1 = carries. */
   const rz = (x: PlayerGame, yard: number | null, slot: 0 | 1): void => {
@@ -104,11 +104,13 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
       let c = cells.get(k);
       if (!c) {
         const home = r.str(row, 'posteam_type') === 'home' && r.str(row, 'location') !== 'Neutral' ? 1 : 0;
-        cells.set(k, (c = { game: g, off, def, offHome: home, passN: 0, passEpa: 0, rushN: 0, rushEpa: 0, rushHits: 0, covN: 0, covEpa: 0 }));
+        cells.set(k, (c = { game: g, off, def, offHome: home, passN: 0, passEpa: 0, rushN: 0, rushEpa: 0, rushHits: 0, covN: 0, covEpa: 0, passSs: 0, rushSs: 0 }));
       }
+      const ss = r.num(row, 'series_success');
       if (pass) {
         c.passN++;
         c.passEpa += epa;
+        c.passSs = (c.passSs ?? 0) + ss;
         if (sack || r.num(row, 'qb_hit') === 1) c.rushHits++;
         if (attempt && !sack) {
           c.covN++;
@@ -117,6 +119,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
       } else {
         c.rushN++;
         c.rushEpa += epa;
+        c.rushSs = (c.rushSs ?? 0) + ss;
       }
     }
 

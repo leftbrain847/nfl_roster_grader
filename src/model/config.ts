@@ -29,6 +29,12 @@ export const UNITS: Record<UnitKey, UnitLabel> = {
   rushDefense: { short: 'Rush D', reason: 'rush D', long: 'Rush defense', side: 'defense', play: 'rush' },
 };
 
+/** The two measures a unit can be shown on (Front office board and team sheets). Verdicts and odds use EPA. */
+export const UNIT_METRICS: Record<'epa' | 'series', { label: string; short: string; offense: string; defense: string; decimals: number; percent: boolean }> = {
+  epa: { label: 'EPA/play', short: 'EPA', offense: 'EPA/play', defense: 'EPA/play allowed', decimals: 3, percent: false },
+  series: { label: 'Series success', short: 'Series', offense: 'series success', defense: 'series success allowed', decimals: 1, percent: true },
+};
+
 // ---------------------------------------------------------------------------------------------------------------
 // Opponent adjustment (ridge regression; see src/model/adjust.ts for why ridge)
 // ---------------------------------------------------------------------------------------------------------------
@@ -773,9 +779,9 @@ export const RED_ZONE: RedZoneConfig = {
   ],
 };
 
-/** Layout version of the saved play-by-play extract. Bump when RED_ZONE.zones or the extract's fields change: a last
+/** Layout version of the saved play-by-play extract (2: series success). Bump when RED_ZONE.zones or the extract's fields change: a last
  * good copy with another version is then not reused (it would hold other cutoffs). */
-export const PBP_VERSION = 1;
+export const PBP_VERSION = 2;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Optional second ranking: a ratings source. OFF in this build.
