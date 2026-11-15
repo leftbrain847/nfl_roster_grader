@@ -274,3 +274,4 @@ button.d-link .d-name { color: var(--accent); }
 .d-down { background: var(--pat-bg); color: var(--pat); }
 .d-gone { color: var(--muted); font-size: 13px; text-decoration: line-through; }
 .ext { color: var(--fg); font-weight: 600; overflow-wrap: anywhere; user-select: all; }
+.pr-tags { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }

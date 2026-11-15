@@ -1,18 +1,18 @@
 /**
  * Roster Grader page. Reads the model output baked in at build time (no network). Tabs: This week (fantasy points
- * allowed by position, red zone usage, personnel), Value (production and fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
+ * allowed by position, red zone usage, personnel, practice status), Value (production and fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
  * team, and the team grade board with its buy / sell calls and team sheets). Text goes in as text, never HTML.
  */
 import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, type FantasyPos,
+  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, INJURY, type FantasyPos,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
-import type { PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -50,7 +50,8 @@ const state = {
   faPos: 'WR' as FantasyPos,
   faWindow: 'season' as 'season' | 'recent',
   faAdjusted: true,
-  weekView: 'fantasy' as 'fantasy' | 'redzone' | 'personnel',
+  weekView: 'fantasy' as 'fantasy' | 'redzone' | 'personnel' | 'practice',
+  prTeam: 'all',
   pTeam: '',
   rzTeam: '',
   rzWeek: 'season',
@@ -991,6 +992,46 @@ function personnelView(): HTMLElement {
   ]);
 }
 
+const tagClass = (x: string | null): string => (x === 'Out' || x === 'DNP' ? 'd-inj' : x === 'Doubtful' || x === 'Questionable' || x === 'Limited' ? 'd-down' : 'd-up');
+
+function practiceRows(rows: PracticeRow[], key: string): HTMLElement {
+  return el('ul', { className: 'players' }, rows.map((r, i) => {
+    const inner = [
+      el('span', { className: 'p-main' }, [
+        el('span', { className: 'p-name', text: `${r.name} ${r.pos}` }),
+        el('span', { className: 'p-meta', text: r.injury || 'No injury listed' }),
+      ]),
+      el('span', { className: 'pr-tags' }, [
+        r.practice ? el('span', { className: `d-tag ${tagClass(r.practice)}`, text: r.practice }) : null,
+        r.game ? el('span', { className: `d-tag ${tagClass(r.game)}`, text: r.game }) : null,
+      ]),
+    ];
+    return el('li', { className: 'player' }, [
+      profiles.has(r.id)
+        ? el('button', { className: 'player-head', attrs: { 'data-pr': `${key}-${i}` }, onClick: () => openPlayer(r.id, `[data-pr="${key}-${i}"]`) }, inner)
+        : el('div', { className: 'player-head' }, inner),
+    ]);
+  }));
+}
+
+function practiceView(): HTMLElement {
+  const pr = data.thisWeek?.practice;
+  const head = [
+    el('h2', { className: 'pos-title', text: 'Practice and game status' }),
+    el('p', { className: 'fine', text: `${pr?.note ?? INJURY.practiceNote} Game status = the designation for this week's game (Out, Doubtful, Questionable). From the NFL's injury reports via nflverse.` }),
+  ];
+  if (!pr) return el('div', { className: 'rankings' }, [...head, el('p', { className: 'fine', text: 'No injury reports on file.' })]);
+  if (!pr.published) return el('div', { className: 'rankings' }, [...head, el('p', { className: 'fine', text: `Week ${pr.week}'s first report isn't in yet (reports come out Wednesday to Friday; the file has through week ${pr.latestWeek}).` })]);
+  const codes = Object.keys(pr.teams);
+  if (state.prTeam !== 'all' && !codes.includes(state.prTeam)) state.prTeam = 'all';
+  const shown = state.prTeam === 'all' ? codes : [state.prTeam];
+  return el('div', { className: 'rankings' }, [
+    ...head,
+    el('div', { className: 'picks' }, [selectBox('Team', state.prTeam, [['all', 'All teams'], ...codes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()])], (v) => { state.prTeam = v; draw(); })]),
+    ...shown.map((t) => el('div', { className: 'shop' }, [el('h4', { text: `${t} ${teams.get(t)?.name ?? ''}`.trim() }), practiceRows(pr.teams[t] ?? [], t)])),
+  ]);
+}
+
 function weekView(): HTMLElement {
   const wk = data.thisWeek?.week;
   return el('section', { className: 'rankings' }, [
@@ -999,8 +1040,9 @@ function weekView(): HTMLElement {
       chip('Fantasy allowed', state.weekView === 'fantasy', () => { state.weekView = 'fantasy'; draw(); }, 'fantasy'),
       chip('Red zone', state.weekView === 'redzone', () => { state.weekView = 'redzone'; draw(); }, 'redzone'),
       chip('Personnel', state.weekView === 'personnel', () => { state.weekView = 'personnel'; draw(); }, 'personnel'),
+      chip('Practice', state.weekView === 'practice', () => { state.weekView = 'practice'; draw(); }, 'practice'),
     ]),
-    state.weekView === 'redzone' ? redZoneView() : state.weekView === 'personnel' ? personnelView() : fantasyAllowedView(),
+    state.weekView === 'redzone' ? redZoneView() : state.weekView === 'personnel' ? personnelView() : state.weekView === 'practice' ? practiceView() : fantasyAllowedView(),
   ]);
 }
 

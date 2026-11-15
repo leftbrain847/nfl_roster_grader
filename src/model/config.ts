@@ -821,12 +821,24 @@ export interface InjuryConfig {
   practice: Record<string, string>;
   /** Weekly roster statuses shown as a designation when there is no injury report line (RES = a reserve list, e.g. IR). */
   rosterStatus: Record<string, string>;
+  /** Practice list order: game designations first in this order, then practice status in this order. */
+  gameOrder: string[];
+  practiceOrder: string[];
+  /**
+   * What the practice column means. nflverse's injuries file has ONE practice status per player per week (the latest
+   * report), not one per day; checked Nov 15 2026 against 2026 weeks 1-10. The evening refreshes (Wed-Fri) pick up
+   * each day's update as nflverse publishes it, but the page only ever has the latest one.
+   */
+  practiceNote: string;
 }
 
 export const INJURY: InjuryConfig = {
   gameStatus: { Out: 'Out', Doubtful: 'Doubtful', Questionable: 'Questionable' },
   practice: { 'Did Not Participate In Practice': 'DNP', 'Limited Participation in Practice': 'Limited', 'Full Participation in Practice': 'Full' },
   rosterStatus: { RES: 'Reserve/IR' },
+  gameOrder: ['Out', 'Doubtful', 'Questionable'],
+  practiceOrder: ['DNP', 'Limited', 'Full'],
+  practiceNote: 'Practice = the latest practice status on this week\'s report as nflverse has it (one per player per week, not one per day).',
 };
 
 // ---------------------------------------------------------------------------------------------------------------
