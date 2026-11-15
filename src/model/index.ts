@@ -1,6 +1,6 @@
 /** The whole model: inputs (compact nflverse data) -> what the page shows. Pure: no clock, no I/O, no randomness
  * beyond the seeded playoff sim. */
-import { BUY, DIVISIONS, RATINGS_SOURCE, TEAM_NAMES, UNIT_KEYS, UNITS, type RankingMode, type RatingsSourceConfig, type UnitKey } from './config.ts';
+import { BUY, DIVISIONS, PERSONNEL_SOURCE, RATINGS_SOURCE, type PersonnelSourceConfig, TEAM_NAMES, UNIT_KEYS, UNITS, type RankingMode, type RatingsSourceConfig, type UnitKey } from './config.ts';
 import { ranks } from './stats.ts';
 import { buyTargets, tradeChips } from './buy.ts';
 import { playerContract } from './contracts.ts';
@@ -19,6 +19,7 @@ import { decideVerdict } from './verdict.ts';
 import { currentWeek, fantasyAllowed } from './fantasyAllowed.ts';
 import { redZoneUsage } from './redZone.ts';
 import { depthCharts } from './depth.ts';
+import { buildPersonnel } from './personnel.ts';
 import type { ModelInputs, ModelOutput, SourceStatus, TeamResult } from './types.ts';
 
 export interface BuildOptions {
@@ -26,6 +27,7 @@ export interface BuildOptions {
   dataAsOf: string;
   sample?: boolean;
   ratingsCfg?: RatingsSourceConfig;
+  personnelCfg?: PersonnelSourceConfig;
 }
 
 export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
@@ -138,6 +140,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
       week: currentWeek(inp.games),
       fantasyAllowed: fantasyAllowed(inp.playerWeeks, inp.games, teams),
       redZone: redZoneUsage(inp),
+      personnel: buildPersonnel(inp, opts.personnelCfg ?? PERSONNEL_SOURCE),
     },
   };
 }

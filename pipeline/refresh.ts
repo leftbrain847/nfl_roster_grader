@@ -14,11 +14,12 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { DEPTH_VERSION, GAME_LOG_VERSION, PBP_VERSION, RATINGS_SOURCE, type RatingsSourceConfig } from '../src/model/config.ts';
+import { DEPTH_VERSION, GAME_LOG_VERSION, PBP_VERSION, PERSONNEL_SOURCE, RATINGS_SOURCE, SNAPS_VERSION, type PersonnelSourceConfig, type RatingsSourceConfig } from '../src/model/config.ts';
 import { buildModel } from '../src/model/index.ts';
 import { matchLinemen } from '../src/model/line.ts';
 import { parseRatings } from '../src/model/ratings.ts';
-import type { Game, ModelInputs, ModelOutput, SourceStatus } from '../src/model/types.ts';
+import { assertPersonnelAllowed } from '../src/model/personnel.ts';
+import type { Game, ModelInputs, ModelOutput, PersonnelCounts, SourceStatus } from '../src/model/types.ts';
 import { extract, type Extracted, type PbpData } from './extract.ts';
 import { rawFileName, seasonFor, SOURCES, sourceUrl, type SourceDef, type SourceId } from './sources.ts';
 
@@ -42,6 +43,7 @@ export interface RefreshOptions {
   rawDir?: string;
   log?: (line: string) => void;
   ratingsCfg?: RatingsSourceConfig;
+  personnelCfg?: PersonnelSourceConfig;
 }
 
 /** What data/sources/<id>.json holds: the last good copy of one source. */
@@ -57,7 +59,7 @@ export interface Snapshot {
 }
 
 /** Sources whose saved layout can change with config: a last good copy with another version is not reused. */
-export const SNAPSHOT_VERSION: Partial<Record<SourceId, number>> = { player_weeks: GAME_LOG_VERSION, pbp: PBP_VERSION, depth_charts: DEPTH_VERSION };
+export const SNAPSHOT_VERSION: Partial<Record<SourceId, number>> = { player_weeks: GAME_LOG_VERSION, pbp: PBP_VERSION, depth_charts: DEPTH_VERSION, snaps: SNAPS_VERSION, pbp_prev: PBP_VERSION };
 
 export const DATA_DIR = 'data';
 export const OUTPUT_FILE = 'data/roster_grader.json';
@@ -146,8 +148,9 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
   // schedules first: every other source's coverage is judged against it
   const ordered = [...SOURCES].sort((a, b) => Number(b.id === 'schedules') - Number(a.id === 'schedules'));
   for (const s of ordered) {
-    const url = sourceUrl(s, season);
-    const prev = readSnapshot(opts.root, s.id, season);
+    const srcSeason = season + (s.seasonOffset ?? 0);
+    const url = sourceUrl(s, srcSeason);
+    const prev = readSnapshot(opts.root, s.id, srcSeason);
     let fresh: Snapshot | null = null;
     let why = '';
     try {
@@ -158,12 +161,13 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
       } else {
         if (opts.rawDir) {
           mkdirSync(opts.rawDir, { recursive: true });
-          writeFileSync(join(opts.rawDir, rawFileName(s, season)), res.bytes);
+          writeFileSync(join(opts.rawDir, rawFileName(s, srcSeason)), res.bytes);
         }
-        const ex: Extracted = await extract(s.id, res.bytes, url, season);
-        const empty = Array.isArray(ex.data) ? ex.data.length === 0 : (ex.data as PbpData).teamGames?.length === 0;
+        const ex: Extracted = await extract(s.id, res.bytes, url, srcSeason);
+        const d = ex.data as unknown[] | PbpData | Record<string, unknown>;
+        const empty = Array.isArray(d) ? d.length === 0 : 'teamGames' in d && Array.isArray(d.teamGames) ? d.teamGames.length === 0 : Object.keys(d).length === 0;
         if (empty && s.id !== 'schedules') why = 'file had no rows for this season';
-        else fresh = { id: s.id, season, lastModified: isoDate(res.lastModified), games: ex.games?.slice().sort(), maxWeek: ex.maxWeek, ...(SNAPSHOT_VERSION[s.id] !== undefined ? { version: SNAPSHOT_VERSION[s.id] } : {}), data: ex.data };
+        else fresh = { id: s.id, season: srcSeason, lastModified: isoDate(res.lastModified), games: ex.games?.slice().sort(), maxWeek: ex.maxWeek, ...(SNAPSHOT_VERSION[s.id] !== undefined ? { version: SNAPSHOT_VERSION[s.id] } : {}), data: ex.data };
       }
     } catch (e) {
       why = 'could not read the file';
@@ -183,7 +187,7 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
 
     if (!chosen) {
       if (s.required) throw new Error(`${s.label}: ${why || 'unavailable'}, and there is no earlier copy; nothing to build from`);
-      statuses.push({ id: s.id, label: s.label, asOf: null, coverage: '-', state: 'missing', note: why || 'unavailable' });
+      statuses.push({ id: s.id, label: s.label, asOf: null, coverage: '-', state: 'missing', note: s.missingNote ?? (why || 'unavailable') });
       log(`${s.id}: MISSING (${why})`);
       continue;
     }
@@ -214,6 +218,13 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
     const p = join(opts.root, ratingsCfg.file);
     ratings = existsSync(p) ? parseRatings(JSON.parse(readFileSync(p, 'utf8'))) : undefined;
   }
+  const personnelCfg = opts.personnelCfg ?? PERSONNEL_SOURCE;
+  assertPersonnelAllowed(personnelCfg);
+  let personnelCounts: PersonnelCounts | undefined;
+  if (personnelCfg.enabled) {
+    const p = join(opts.root, personnelCfg.file);
+    personnelCounts = existsSync(p) ? (JSON.parse(readFileSync(p, 'utf8')) as PersonnelCounts) : undefined;
+  }
   const inputs: ModelInputs = {
     season,
     games: schedule,
@@ -235,12 +246,17 @@ export async function refresh(opts: RefreshOptions): Promise<RefreshResult> {
     draft: get('draft', []),
     depthCharts: get('depth_charts', []),
     injuries: get('injuries', []),
+    plays: pbp.plays,
+    prevPlays: used.get('pbp_prev')?.data as ModelInputs['prevPlays'],
+    participation: used.get('participation')?.data as ModelInputs['participation'],
+    prevParticipation: used.get('participation_prev')?.data as ModelInputs['prevParticipation'],
+    personnelCounts,
     ratings,
   };
   const dataAsOf = [...used.values()].map((s) => s.lastModified ?? '').filter((d) => d && d <= opts.today).sort().pop() ?? opts.today;
   const linemen = matchLinemen(inputs);
   log(`linemen matched to snap counts: ${linemen.ids.size}; no confident match (mostly linemen with no snaps yet): ${linemen.unmatched.length}${linemen.unmatched.length ? ` (${linemen.unmatched.slice(0, 20).join(', ')}${linemen.unmatched.length > 20 ? ', ...' : ''})` : ''}`);
-  const output = buildModel(inputs, { sources: statuses, dataAsOf, ratingsCfg });
+  const output = buildModel(inputs, { sources: statuses, dataAsOf, ratingsCfg, personnelCfg });
   const abs = join(opts.root, OUTPUT_FILE);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, `${JSON.stringify(output)}\n`);

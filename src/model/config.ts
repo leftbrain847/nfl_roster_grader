@@ -779,9 +779,9 @@ export const RED_ZONE: RedZoneConfig = {
   ],
 };
 
-/** Layout version of the saved play-by-play extract (2: series success). Bump when RED_ZONE.zones or the extract's fields change: a last
+/** Layout version of the saved play-by-play extract (2: series success, 3: per-play EPA for the personnel join). Bump when RED_ZONE.zones or the extract's fields change: a last
  * good copy with another version is then not reused (it would hold other cutoffs). */
-export const PBP_VERSION = 2;
+export const PBP_VERSION = 3;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Depth charts (nflverse depth_charts, dated snapshots from 2025 on) and injury designations
@@ -827,6 +827,77 @@ export const INJURY: InjuryConfig = {
   gameStatus: { Out: 'Out', Doubtful: 'Doubtful', Questionable: 'Questionable' },
   practice: { 'Did Not Participate In Practice': 'DNP', 'Limited Participation in Practice': 'Limited', 'Full Participation in Practice': 'Full' },
   rosterStatus: { RES: 'Reserve/IR' },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Personnel: estimated from snap counts, exact from FTN participation once a season is published
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Personnel estimate from snap counts (no per-play data needed).
+ *
+ * 1. Average players on the field per offensive snap, by position: the position's offense snaps (PFR snap counts,
+ *    by each player's listed position) over the team's offense snaps (the most any one of its players played).
+ * 2. Rates from the averages. If a team only ever used 1 or 2 tight ends, the share of 2-TE snaps would be exactly
+ *    (average TEs - 1); likewise for backs, and 4-WR snaps = (average WRs - 3). Real teams spread wider (some 0- and
+ *    3-TE snaps), which makes those shares too high, so each is multiplied by a scale fitted on a completed season:
+ *      heavy (2+ TE or 2+ RB) = heavyScale x ((TE - 1)+ + (RB - 1)+)
+ *      12 personnel           = twoTeScale x (TE - 1)+
+ *      11 personnel           = 1 - heavy - (WR - 3)+
+ *    each clamped to 0-1, where (x)+ = x clamped to 0-1. Season-to-date rates come from season-to-date averages.
+ * Validated against FTN participation (pipeline/validate-personnel.ts); the scales are refit there each season.
+ */
+export interface PersonnelConfig {
+  /** Snap count position -> the group counted (FB counts as a back). */
+  positions: Record<string, 'RB' | 'TE' | 'WR'>;
+  /** Fitted on 2025 (all 32 teams, FTN participation via nflverse; see validate-personnel.ts). */
+  heavyScale: number;
+  twoTeScale: number;
+  /** Season fitted on, shown with the method. */
+  fittedOn: number;
+  label: string;
+  /** Where exact current numbers are. Shown as text, without a scheme: the Play bundle check (platform) forbids any
+   * "http(s)://" string in the client, as the pick chart credit does. */
+  exactLink: { label: string; url: string };
+  /** Credit and license shown with exact FTN rates. */
+  ftnCredit: string;
+  /** Groupings listed in the exact tables (others are summed as "other"). */
+  groupings: string[];
+}
+
+export const PERSONNEL: PersonnelConfig = {
+  positions: { RB: 'RB', FB: 'RB', HB: 'RB', TE: 'TE', WR: 'WR' },
+  heavyScale: 0.83,
+  twoTeScale: 0.62,
+  fittedOn: 2025,
+  label: 'Estimated from snap counts',
+  exactLink: { label: 'SumerSports personnel tendencies', url: 'sumersports.com/teams/offensive/personnel-tendency' },
+  ftnCredit: 'FTN Data via nflverse (CC BY-SA 4.0)',
+  groupings: ['11', '12', '21', '13', '22', '10'],
+};
+
+/** Bump when the snap count extract's fields change (2: skill-position rows keep their position). */
+export const SNAPS_VERSION = 2;
+
+/**
+ * Slot for exact current-season personnel from another source. OFF. When on, the refresh reads `file`
+ * ({ "<TEAM>": { "<week>": { "<grouping, e.g. 11>": plays } } }) and the page shows those rates instead of the
+ * estimate. It may be turned on only for data we may republish: the refresh refuses unless republishAllowed is true.
+ */
+export interface PersonnelSourceConfig {
+  enabled: boolean;
+  label: string;
+  license: string;
+  republishAllowed: boolean;
+  file: string;
+}
+
+export const PERSONNEL_SOURCE: PersonnelSourceConfig = {
+  enabled: false,
+  label: '',
+  license: '',
+  republishAllowed: false,
+  file: 'data/personnel.json',
 };
 
 // ---------------------------------------------------------------------------------------------------------------

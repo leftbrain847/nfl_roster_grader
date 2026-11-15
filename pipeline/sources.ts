@@ -10,7 +10,7 @@ export type SourceId =
   | 'ngs_passing' | 'ngs_receiving' | 'ngs_rushing'
   | 'pfr_pass' | 'pfr_rush' | 'pfr_rec' | 'pfr_def'
   | 'snaps' | 'contracts' | 'player_weeks' | 'roster_moves' | 'trades' | 'draft'
-  | 'depth_charts' | 'injuries';
+  | 'depth_charts' | 'injuries' | 'pbp_prev' | 'participation' | 'participation_prev';
 
 export type CoverageKind = 'games' | 'weeks' | 'age';
 
@@ -27,6 +27,10 @@ export interface SourceDef {
   maxAgeDays?: number;
   /** Without these the page can't be built at all (a kept copy still works). */
   required: boolean;
+  /** Read another season's file: -1 = last season. */
+  seasonOffset?: number;
+  /** Shown instead of the download error when there is no copy yet and that is expected. */
+  missingNote?: string;
 }
 
 export const SOURCES: SourceDef[] = [
@@ -52,6 +56,10 @@ export const SOURCES: SourceDef[] = [
   // dated ESPN depth chart snapshots (about two a day), one file per season from 2025 on; ~75 MB by midseason
   { id: 'depth_charts', label: 'Depth charts', path: 'depth_charts/depth_charts_{season}.csv', coverage: 'age', lagDays: 0, maxAgeDays: 3, required: false },
   { id: 'injuries', label: 'Injury reports', path: 'injuries/injuries_{season}.csv', coverage: 'weeks', lagDays: 3, required: false },
+  // personnel: FTN participation is published for a season after it ends; last season's needs its play-by-play for EPA
+  { id: 'participation', label: 'FTN participation (this season)', path: 'pbp_participation/pbp_participation_{season}.csv', coverage: 'age', lagDays: 0, maxAgeDays: 400, required: false, missingNote: 'published after the season ends; until then personnel is estimated from snap counts' },
+  { id: 'participation_prev', label: 'FTN participation (last season)', path: 'pbp_participation/pbp_participation_{season}.csv', coverage: 'age', lagDays: 0, maxAgeDays: 400, required: false, seasonOffset: -1 },
+  { id: 'pbp_prev', label: 'Play-by-play (last season, for personnel EPA)', path: 'pbp/play_by_play_{season}.csv.gz', coverage: 'age', lagDays: 0, maxAgeDays: 400, required: false, seasonOffset: -1 },
 ];
 
 export const sourceUrl = (s: SourceDef, season: number): string => `${NFLVERSE_BASE}/${s.path.replace('{season}', String(season))}`;

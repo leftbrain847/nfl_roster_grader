@@ -63,7 +63,18 @@ export interface SnapRow {
   p: string; g: string; t: string; off: number; def: number;
   /** Player name, kept only for offensive linemen: the roster file has no PFR id for them, so they join by name. */
   n?: string;
+  /** Listed position, kept only for backs, tight ends and receivers (PERSONNEL.positions): the personnel estimate. */
+  pos?: string;
 }
+
+/** Per-play EPA by game: [play_id, EPA] for every pass and rush play (kneels, spikes, two-point tries left out). */
+export type PlayEpa = Record<string, [number, number][]>;
+
+/** FTN participation by game: [play_id, offense team, grouping ("11" = 1 RB, 1 TE)] for plays with a QB on the field. */
+export type Participation = Record<string, [number, string, string][]>;
+
+/** Exact personnel from another source (PERSONNEL_SOURCE): team -> week -> grouping -> plays. */
+export type PersonnelCounts = Record<string, Record<string, Record<string, number>>>;
 
 export interface NgsPassing { p: string; att: number; cpoe: number }
 export interface NgsReceiving { p: string; tgt: number; separation: number; yacOverExpected: number }
@@ -198,6 +209,13 @@ export interface ModelInputs {
   draft?: DraftPick[];
   depthCharts?: DepthSnapshot[];
   injuries?: InjuryRow[];
+  /** Personnel: this season's and last season's per-play EPA and FTN participation (each absent until published). */
+  plays?: PlayEpa;
+  prevPlays?: PlayEpa;
+  participation?: Participation;
+  prevParticipation?: Participation;
+  /** Exact current personnel, only when PERSONNEL_SOURCE is enabled. */
+  personnelCounts?: PersonnelCounts;
   /** gsis_id -> 0-100, only when the optional ratings source is enabled. */
   ratings?: Record<string, number>;
 }
@@ -561,12 +579,68 @@ export interface DepthChartView {
   changes: number;
 }
 
+/** Personnel estimated from snap counts: average players on the field by position, and the rates they imply. */
+export interface PersonnelEstimate {
+  /** Offense snaps behind it. */
+  snaps: number;
+  rb: number;
+  te: number;
+  wr: number;
+  /** 0-1 shares of snaps. */
+  p11: number;
+  p12: number;
+  heavy: number;
+}
+
+export interface PersonnelTeam {
+  season: PersonnelEstimate;
+  /** One per game, oldest first. */
+  weeks: (PersonnelEstimate & { wk: number; opp: string })[];
+}
+
+export interface ExactGrouping {
+  /** "11", "12", ... or "other". */
+  code: string;
+  plays: number;
+  /** Share of the team's (or league's) plays, 0-1. */
+  rate: number;
+  /** EPA per play; null when no play could be joined to play-by-play. */
+  epa: number | null;
+}
+
+export interface ExactTeam {
+  plays: number;
+  p11: number;
+  p12: number;
+  heavy: number;
+  groupings: ExactGrouping[];
+}
+
+/** Exact personnel for one season (FTN participation via nflverse, or the PERSONNEL_SOURCE slot). */
+export interface PersonnelExact {
+  season: number;
+  credit: string;
+  league: ExactGrouping[];
+  teams: Record<string, ExactTeam & { weeks?: (Omit<ExactTeam, 'groupings'> & { wk: number })[] }>;
+}
+
+export interface Personnel {
+  method: string;
+  estimate: Record<string, PersonnelTeam>;
+  /** FTN participation for this season (published after it ends) and for last season, when on file. */
+  exactCurrent: PersonnelExact | null;
+  exactPrev: PersonnelExact | null;
+  /** The optional exact current-season source (PERSONNEL_SOURCE), when enabled. */
+  slot: PersonnelExact | null;
+}
+
 /** The This week tab. Optional in the output so a data file from before it still loads. */
 export interface ThisWeek {
   /** The first week with a game not yet played (or the last week, after the season). */
   week: number;
   fantasyAllowed: FantasyAllowed;
   redZone?: RedZoneUsage;
+  personnel?: Personnel;
 }
 
 export interface ModelOutput {
