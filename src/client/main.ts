@@ -1,13 +1,13 @@
 /**
- * Roster Grader page. Reads the model output baked in at build time (no network). Three tabs: Value (production and
- * fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
+ * Roster Grader page. Reads the model output baked in at build time (no network). Tabs: This week (fantasy points
+ * allowed by position), Value (production and fantasy points per cap dollar), Production (position rankings, a page per player) and Front office (cap value by
  * team, and the team grade board with its buy / sell calls and team sheets). Text goes in as text, never HTML.
  */
 import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE,
+  PICK_VALUE, FANTASY_ALLOWED, THIS_WEEK, type FantasyPos,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
@@ -18,7 +18,7 @@ import { el, render } from './ui';
 const MOVES_PAGE = 60;
 
 type SortKey = 'team' | 'verdict' | 'odds' | UnitKey;
-type View = 'value' | 'players' | 'office' | 'moves';
+type View = 'week' | 'value' | 'players' | 'office' | 'moves';
 
 const state = {
   view: 'value' as View,
@@ -46,6 +46,9 @@ const state = {
   lineupScope: 'season' as Lineup['scope'],
   office: null as string | null,
   open: new Set<string>(),
+  faPos: 'WR' as FantasyPos,
+  faWindow: 'season' as 'season' | 'recent',
+  faAdjusted: true,
 };
 
 const players = new Map(data.players.map((p) => [p.id, p]));
@@ -772,6 +775,56 @@ function movesView(): HTMLElement {
   ]);
 }
 
+// ------------------------------------------------------------------ this week
+
+/** Rank 1 of n -> a 0-100 band value (1st = 100). */
+const rankBand = (rank: number, n: number): number => (n > 1 ? (100 * (n - rank)) / (n - 1) : 50);
+
+function fantasyAllowedView(): HTMLElement {
+  const fa = data.thisWeek?.fantasyAllowed;
+  const head = [
+    el('h2', { className: 'pos-title', text: 'Fantasy points allowed' }),
+    el('p', { className: 'fine', text: `PPR points each defense gave up per game to each position. Adjusted = after allowing for the offenses it faced (the same ridge regression as the unit grades, each defense shrunk toward average as if it had ${FANTASY_ALLOWED.lambdaGames} extra average games). Rank ${FANTASY_ALLOWED.rankLabel}. Tap a team.` }),
+  ];
+  if (!fa || !Object.keys(fa.teams).length) return el('div', { className: 'rankings' }, [...head, el('p', { className: 'fine', text: 'No data yet: this needs the weekly player stats.' })]);
+  const recentLabel = fa.fromWeek === fa.throughWeek ? `Week ${fa.throughWeek}` : `Weeks ${fa.fromWeek}-${fa.throughWeek}`;
+  const rows = Object.entries(fa.teams)
+    .map(([team, byPos]) => ({ team, w: byPos[state.faPos]?.[state.faWindow] ?? null }))
+    .filter((x): x is { team: string; w: NonNullable<typeof x.w> } => !!x.w);
+  const rk = (w: (typeof rows)[number]['w']): number => (state.faAdjusted ? w.adjustedRank : w.rawRank);
+  rows.sort((a, b) => rk(a.w) - rk(b.w) || a.team.localeCompare(b.team));
+  return el('div', { className: 'rankings' }, [
+    ...head,
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, FANTASY_ALLOWED.positions.map((p) => chip(p, state.faPos === p, () => { state.faPos = p; draw(); }))),
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Period' } }, [
+      chip('Season', state.faWindow === 'season', () => { state.faWindow = 'season'; draw(); }),
+      chip(`Last ${fa.recentWeeks} weeks (${recentLabel})`, state.faWindow === 'recent', () => { state.faWindow = 'recent'; draw(); }),
+    ]),
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Measure' } }, [
+      chip('Adjusted', state.faAdjusted, () => { state.faAdjusted = true; draw(); }),
+      chip('Raw', !state.faAdjusted, () => { state.faAdjusted = false; draw(); }),
+    ]),
+    el('ol', { className: 'players' }, rows.map(({ team, w }) => el('li', { className: 'player' }, [
+      el('button', { className: 'player-head', attrs: { 'data-fa': team }, onClick: () => openTeam(team) }, [
+        el('span', { className: 'p-rank num', text: String(rk(w)) }),
+        el('span', { className: 'p-main' }, [
+          el('span', { className: 'p-name', text: `${team} ${teams.get(team)?.name ?? ''}`.trim() }),
+          el('span', { className: 'p-meta', text: `Adjusted ${w.adjusted.toFixed(1)} (${ordinal(w.adjustedRank)}) · raw ${w.raw.toFixed(1)} (${ordinal(w.rawRank)}) · ${w.games} ${w.games === 1 ? 'game' : 'games'}` }),
+        ]),
+        el('span', { className: `p-score num ${band(rankBand(rk(w), rows.length))}`, text: (state.faAdjusted ? w.adjusted : w.raw).toFixed(1) }),
+      ]),
+    ]))),
+  ]);
+}
+
+function weekView(): HTMLElement {
+  const wk = data.thisWeek?.week;
+  return el('section', { className: 'rankings' }, [
+    el('p', { className: 'eyebrow', text: wk ? `Week ${wk}` : '' }),
+    fantasyAllowedView(),
+  ]);
+}
+
 // ------------------------------------------------------------------ footer
 
 function footer(): HTMLElement {
@@ -790,6 +843,7 @@ function footer(): HTMLElement {
     el('p', { text: 'Offensive line: pass protection = QB pressures (PFR) per dropback; run blocking = rushing yards before contact per carry (PFR). When a buyer\'s weakest unit is pass O or rush O, it shops for the weaker half: the line, or the pass catchers (EPA per non-sack attempt) or backs (yards after contact per carry).' }),
     el('p', { text: 'Player pages (Production, then search, or "Game log and contract" on a ranked player): one line per game from the nflverse weekly stats, for every quarterback, back, receiver, tight end and defender with a stat this season. Snap% is his share of the team\'s offense or defense snaps. PPR = fantasy points with a point per catch. Contract years show base salary, cap hit and cash paid.' }),
     el('p', { text: `Value: cap hit is what a player counts against his team's cap this season (from the contract's yearly rows). Production per $: a ranked player's production score is worth the cap hit at the same percentile of pay at his position; surplus is that worth minus his own cap hit. Cheap producers (often rookie deals) come out best and expensive players who aren't producing worst. Pay is steep at the top of a position, so its highest-paid players only break even by being its very best producers, and a few percentile points there can move worth by many millions. Cap value by team (Front office) adds the surplus up by team; it ignores dead money, linemen, specialists and players without enough play to rank, teams that spend more on ranked players tend to score lower, and a quarterback's surplus can swing a team's total. Fantasy per $ = PPR points per $1M of cap hit. Best rosters and lineups are found exactly, with cap hits rounded up to the nearest $${Math.max(VALUE.fantasy.budgetStepMillions, VALUE.roster.budgetStepMillions)}M; the weekly lineup uses the latest week with every game played.` }),
+    el('p', { text: `Fantasy points allowed (This week): PPR points per game each defense gave up to quarterbacks, backs (fullbacks included), receivers and tight ends, from the nflverse weekly player stats, over the season and the last ${FANTASY_ALLOWED.recentWeeks} weeks played. Adjusted for the offenses faced with the unit grades' ridge regression on game totals (points = average + offense + defense + home), each team shrunk toward average as if it had ${FANTASY_ALLOWED.lambdaGames} extra average games. Rank 1 = allows the most.` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, trades and draft picks, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),
@@ -803,9 +857,9 @@ function footer(): HTMLElement {
 function draw(): void {
   const team = state.team ? teams.get(state.team) : undefined;
   const profile = state.player ? profiles.get(state.player) : undefined;
-  const tabs = (['value', 'players', 'office', 'moves'] as const).map((v) => el('button', {
+  const tabs = (['week', 'value', 'players', 'office', 'moves'] as const).map((v) => el('button', {
     className: `tab${state.view === v ? ' on' : ''}`,
-    text: v === 'value' ? 'Value' : v === 'players' ? 'Production' : v === 'office' ? 'Front office' : 'Moves',
+    text: v === 'week' ? THIS_WEEK.label : v === 'value' ? 'Value' : v === 'players' ? 'Production' : v === 'office' ? 'Front office' : 'Moves',
     attrs: { 'aria-pressed': String(state.view === v), 'data-view': v },
     onClick: () => { state.view = v; draw(); },
   }));
@@ -818,7 +872,7 @@ function draw(): void {
       el('nav', { className: 'tabs' }, tabs),
     ]),
     data.sample ? el('p', { className: 'banner', text: 'Sample data (weeks 1-2 of 2026): the nightly refresh has not run yet.' }) : null,
-    el('main', {}, [state.view === 'value' ? valueView() : state.view === 'players' ? playersView() : state.view === 'office' ? officeView() : movesView(), footer()]),
+    el('main', {}, [state.view === 'week' ? weekView() : state.view === 'value' ? valueView() : state.view === 'players' ? playersView() : state.view === 'office' ? officeView() : movesView(), footer()]),
     team ? teamSheet(team) : null,
     profile ? playerSheet(profile) : null,
   ]));

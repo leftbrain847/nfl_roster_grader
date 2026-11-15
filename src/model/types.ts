@@ -1,5 +1,5 @@
 /** Shapes shared by the refresh pipeline (pipeline/), the model (src/model/) and the page (src/client/). */
-import type { LineKey, LogKind, MoveKind, PositionGroup, RankingMode, StatKey, UnitKey, Verdict } from './config.ts';
+import type { FantasyPos, LineKey, LogKind, MoveKind, PositionGroup, RankingMode, StatKey, UnitKey, Verdict } from './config.ts';
 
 // ------------------------------------------------------------------ model inputs (compact, built from nflverse)
 
@@ -439,6 +439,33 @@ export interface MoveGrade {
   reason: string;
 }
 
+/** Points one defense allowed to one position per game over a window, raw and opponent-adjusted. */
+export interface FantasyAllowedWindow {
+  games: number;
+  /** PPR points per game. */
+  raw: number;
+  adjusted: number;
+  /** 1 = allows the most. */
+  rawRank: number;
+  adjustedRank: number;
+}
+
+export interface FantasyAllowed {
+  /** The recent window: weeks fromWeek..throughWeek. */
+  recentWeeks: number;
+  fromWeek: number;
+  throughWeek: number;
+  /** team -> position -> season and recent windows (recent is null for a team with no game in it). */
+  teams: Record<string, Partial<Record<FantasyPos, { season: FantasyAllowedWindow; recent: FantasyAllowedWindow | null }>>>;
+}
+
+/** The This week tab. Optional in the output so a data file from before it still loads. */
+export interface ThisWeek {
+  /** The first week with a game not yet played (or the last week, after the season). */
+  week: number;
+  fantasyAllowed: FantasyAllowed;
+}
+
 export interface ModelOutput {
   schemaVersion: 1;
   /** True only for the built-in sample (no real data yet): the page shows a banner. */
@@ -455,4 +482,5 @@ export interface ModelOutput {
   sources: SourceStatus[];
   rankingModes: RankingMode[];
   ratingsCredit: string | null;
+  thisWeek?: ThisWeek;
 }
