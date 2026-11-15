@@ -3,7 +3,7 @@
  * what it covers (game ids or latest week), which decides fresh / lagging / kept.
  */
 import { gunzipSync } from 'node:zlib';
-import { BIG_PLAYS, GAME_LOG, LINE_TARGETS, MOVES, PLAY_FILTER } from '../src/model/config.ts';
+import { BIG_PLAYS, GAME_LOG, LINE_TARGETS, MOVES, PLAY_FILTER, RED_ZONE } from '../src/model/config.ts';
 import type {
   Contract, ContractSeason, DraftPick, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
   PlayerWeek, RosterHistory, RosterPlayer, SnapRow, TeamGame, TradeRow,
@@ -56,7 +56,18 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
   const r = reader(t);
   r.require('season', 'season_type', 'game_id', 'pass', 'rush', 'epa', 'qb_epa', 'wp', 'success', 'sack', 'qb_hit', 'pass_attempt', 'cpoe',
     'posteam', 'defteam', 'posteam_type', 'location', 'passer_player_id', 'receiver_player_id', 'rusher_player_id',
-    'solo_tackle_1_player_id', 'tackle_for_loss_1_player_id', 'sack_player_id', 'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id');
+    'solo_tackle_1_player_id', 'tackle_for_loss_1_player_id', 'sack_player_id', 'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id',
+    'yardline_100');
+  const zones = RED_ZONE.zones;
+  /** Red zone counts: slot 2i = targets in zone i, 2i + 1 = carries. */
+  const rz = (x: PlayerGame, yard: number | null, slot: 0 | 1): void => {
+    if (yard === null) return;
+    zones.forEach((z, i) => {
+      if (yard > z.maxYardline) return;
+      const a = (x.rz ??= Array<number>(2 * zones.length).fill(0));
+      a[2 * i + slot] = (a[2 * i + slot] ?? 0) + 1;
+    });
+  };
   const cells = new Map<string, TeamGame>();
   const players = new Map<string, PlayerGame>();
   const gameIds = new Set<string>();
@@ -84,6 +95,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
     const success = r.num(row, 'success');
     const sack = r.num(row, 'sack') === 1;
     const attempt = r.num(row, 'pass_attempt') === 1;
+    const yard = r.opt(row, 'yardline_100');
 
     // team cells (garbage time filtered)
     const wp = r.opt(row, 'wp');
@@ -128,6 +140,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
         const x = pg(rec, g, off);
         add(x, 'tgt', 1);
         add(x, 'tgtEpa', epa);
+        rz(x, yard, 0);
       }
     } else {
       const rb = r.str(row, 'rusher_player_id');
@@ -136,6 +149,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
         add(x, 'car', 1);
         add(x, 'carEpa', epa);
         add(x, 'carSucc', success);
+        rz(x, yard, 1);
       }
     }
     const credit = (col: string, key: keyof PlayerGame, v: number): void => {
@@ -166,6 +180,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
   const playerGames = [...players.values()].map((x) => {
     const o: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(x)) o[k] = typeof v === 'number' ? round4(v) : v;
+    if (x.rz?.every((n) => n === 0)) delete o.rz;
     return o as unknown as PlayerGame;
   });
   return { data: { teamGames, playerGames }, games: [...gameIds] };

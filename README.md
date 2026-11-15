@@ -75,6 +75,7 @@ Everything tunable is in `src/model/config.ts`.
 
 **This week tab** (`src/model/fantasyAllowed.ts`, settings in `THIS_WEEK` and `FANTASY_ALLOWED`). The week is the first one with a game not yet played.
 - *Fantasy points allowed*: PPR points per game each defense gave up to QB / RB (FB included) / WR / TE, from the weekly player stats (`opponent_team`), over the season and the last `recentWeeks` (4) weeks played. Adjusted with the unit grades' ridge regression on game totals (`points = mu + offense + defense + home`, penalty `lambdaGames` = 3 games). Rank 1 = allows the most.
+- *Red zone usage* (`redZone.ts`, `RED_ZONE`): targets and carries from play-by-play with `yardline_100` at or inside 20 and 10, per player per week, with each player's share of his team's. Kneels, spikes, two-point tries and sacks don't count. The saved play-by-play extract carries `PBP_VERSION`; bump it when the cutoffs change.
 
 **Ratings slot (off).** `RATINGS_SOURCE` in config reserves a second ranking: a `{gsis_id: 0-100}` file plus a Production / Ratings / Composite toggle that appears only when it's on. It may be enabled only for data we're allowed to republish (`republishAllowed: true`); the refresh refuses otherwise. Madden ratings are not in this build.
 
