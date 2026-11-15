@@ -7,12 +7,12 @@ import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, type FantasyPos,
+  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, type FantasyPos,
 } from '../model/config.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
-import type { UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -60,6 +60,7 @@ const players = new Map(data.players.map((p) => [p.id, p]));
 const teams = new Map(data.teams.map((t) => [t.team, t]));
 const moves = data.moves ?? [];
 const profiles = new Map((data.profiles ?? []).map((p) => [p.id, p]));
+const depth = new Map((data.depthCharts ?? []).map((d) => [d.team, d]));
 // a data file from before line grades existed still opens its team sheets
 for (const t of data.teams) {
   t.line ??= { passPro: null, runBlock: null };
@@ -279,6 +280,40 @@ function lineCard(x: LineTarget): HTMLElement {
   ]);
 }
 
+function depthEntry(e: DepthEntry, key: string): HTMLElement {
+  const bits = [
+    el('span', { className: 'd-name', text: e.name }),
+    e.score !== null ? el('span', { className: `d-score num ${band(e.score)}`, text: String(e.score), attrs: { title: `Production score (${e.group})` } }) : null,
+    e.designation ? el('span', { className: 'd-tag d-inj', text: e.designation }) : null,
+    e.change ? el('span', { className: `d-tag d-${e.change}`, text: e.change === 'new' ? DEPTH.labels.new : `${e.change === 'up' ? DEPTH.labels.up : DEPTH.labels.down} from ${e.prevRank}` }) : null,
+  ];
+  return el('li', { className: 'd-entry' }, [
+    profiles.has(e.id) ? el('button', { className: 'd-link', attrs: { 'data-depth': key }, onClick: () => openPlayer(e.id, `[data-depth="${key}"]`) }, bits) : el('span', { className: 'd-link' }, bits),
+  ]);
+}
+
+function depthSection(d: DepthChartView | undefined): HTMLElement {
+  if (!d) return el('section', { className: 'shop' }, [el('h3', { text: 'Depth chart' }), el('p', { className: 'fine', text: 'No depth chart on file.' })]);
+  const open = state.open.has(`depth-${d.team}`);
+  return el('section', { className: 'shop depth' }, [
+    el('h3', { text: 'Depth chart' }),
+    el('p', { className: 'fine', text: `As of ${fmtDate(d.asOf)} (ESPN via nflverse)${d.comparedWith ? ` · ${d.changes} ${d.changes === 1 ? 'change' : 'changes'} since ${fmtDate(d.comparedWith)}` : ' · no earlier snapshot to compare'}. Number = production score (ranked players). Tags: this week's injury designation, and moves since the earlier chart.` }),
+    ...d.groups.map((g) => el('div', { className: 'd-group' }, [
+      el('h4', { text: `${g.side === 'offense' ? 'Offense' : 'Defense'} (${g.name})` }),
+      el('ul', { className: 'd-slots' }, g.slots.map((sl, i) => el('li', { className: 'd-slot' }, [
+        el('span', { className: 'd-pos', text: sl.pos }),
+        el('ol', { className: 'd-list' }, [
+          ...(open ? sl.players : sl.players.slice(0, DEPTH.shownPerSlot)).map((e, k) => depthEntry(e, `${d.team}-${g.name}-${i}-${k}`)),
+          ...sl.gone.map((x) => el('li', { className: 'd-entry d-gone', text: `${x.name} · ${DEPTH.labels.gone} (was ${x.prevRank})` })),
+        ]),
+      ]))),
+    ])),
+    d.groups.some((g) => g.slots.some((sl) => sl.players.length > DEPTH.shownPerSlot))
+      ? el('button', { className: 'more', text: open ? 'Show fewer' : 'Show every player', attrs: { 'aria-expanded': String(open) }, onClick: () => { if (open) state.open.delete(`depth-${d.team}`); else state.open.add(`depth-${d.team}`); draw(); } })
+      : null,
+  ]);
+}
+
 function teamSheet(t: TeamResult): HTMLElement {
   const list = (ids: string[]) => el('ol', { className: 'players' }, ids.map((id) => players.get(id)).filter((p): p is PlayerResult => !!p).map((p) => playerCard(p, { showTeam: true })));
   let shop: HTMLElement;
@@ -329,6 +364,7 @@ function teamSheet(t: TeamResult): HTMLElement {
         ...LINE_KEYS.map((k) => lineBar(t, k)),
       ]),
       shop,
+      depthSection(depth.get(t.team)),
     ]),
   ]);
 }
@@ -917,6 +953,7 @@ function footer(): HTMLElement {
     el('p', { text: `Value: cap hit is what a player counts against his team's cap this season (from the contract's yearly rows). Production per $: a ranked player's production score is worth the cap hit at the same percentile of pay at his position; surplus is that worth minus his own cap hit. Cheap producers (often rookie deals) come out best and expensive players who aren't producing worst. Pay is steep at the top of a position, so its highest-paid players only break even by being its very best producers, and a few percentile points there can move worth by many millions. Cap value by team (Front office) adds the surplus up by team; it ignores dead money, linemen, specialists and players without enough play to rank, teams that spend more on ranked players tend to score lower, and a quarterback's surplus can swing a team's total. Fantasy per $ = PPR points per $1M of cap hit. Best rosters and lineups are found exactly, with cap hits rounded up to the nearest $${Math.max(VALUE.fantasy.budgetStepMillions, VALUE.roster.budgetStepMillions)}M; the weekly lineup uses the latest week with every game played.` }),
     el('p', { text: `Fantasy points allowed (This week): PPR points per game each defense gave up to quarterbacks, backs (fullbacks included), receivers and tight ends, from the nflverse weekly player stats, over the season and the last ${FANTASY_ALLOWED.recentWeeks} weeks played. Adjusted for the offenses faced with the unit grades' ridge regression on game totals (points = average + offense + defense + home), each team shrunk toward average as if it had ${FANTASY_ALLOWED.lambdaGames} extra average games. Rank 1 = allows the most.` }),
     el('p', { text: `Red zone usage (This week): targets and carries from play-by-play with the ball snapped ${RED_ZONE.zones.map((z) => `at or inside the ${z.maxYardline}`).join(' or ')}, by player and week, with each player's share of his team's. A sack or an aborted play is not a target; kneels, spikes and two-point tries are left out.` }),
+    el('p', { text: `Depth charts (team sheets): ESPN's depth charts as nflverse snapshots them (about twice a day). The newest snapshot is compared with the newest one from at least ${DEPTH.minDaysBefore} ${DEPTH.minDaysBefore === 1 ? 'day' : 'days'} earlier: New = not on that slot before, Up / Down = moved on it, Off the chart = was on it. Designations are this week's injury report (nflverse injuries) or a reserve list on the weekly roster.` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, trades and draft picks, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),

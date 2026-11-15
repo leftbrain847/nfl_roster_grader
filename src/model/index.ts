@@ -18,6 +18,7 @@ import { round } from './stats.ts';
 import { decideVerdict } from './verdict.ts';
 import { currentWeek, fantasyAllowed } from './fantasyAllowed.ts';
 import { redZoneUsage } from './redZone.ts';
+import { depthCharts } from './depth.ts';
 import type { ModelInputs, ModelOutput, SourceStatus, TeamResult } from './types.ts';
 
 export interface BuildOptions {
@@ -132,6 +133,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     sources: opts.sources,
     rankingModes: modes,
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,
+    depthCharts: depthCharts(inp.depthCharts ?? [], players, inp.injuries ?? [], inp.roster, currentWeek(inp.games)),
     thisWeek: {
       week: currentWeek(inp.games),
       fantasyAllowed: fantasyAllowed(inp.playerWeeks, inp.games, teams),

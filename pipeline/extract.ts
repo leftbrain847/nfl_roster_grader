@@ -3,9 +3,9 @@
  * what it covers (game ids or latest week), which decides fresh / lagging / kept.
  */
 import { gunzipSync } from 'node:zlib';
-import { BIG_PLAYS, GAME_LOG, LINE_TARGETS, MOVES, PLAY_FILTER, RED_ZONE } from '../src/model/config.ts';
+import { BIG_PLAYS, DEPTH, GAME_LOG, LINE_TARGETS, MOVES, PLAY_FILTER, RED_ZONE, type DepthConfig } from '../src/model/config.ts';
 import type {
-  Contract, ContractSeason, DraftPick, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
+  Contract, ContractSeason, DepthRow, DepthSnapshot, DraftPick, Game, InjuryRow, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
   PlayerWeek, RosterHistory, RosterPlayer, SnapRow, TeamGame, TradeRow,
 } from '../src/model/types.ts';
 import { parseCsv, reader, type Table } from './csv.ts';
@@ -492,6 +492,65 @@ export async function extractContracts(buf: Uint8Array, season: number): Promise
   return { data: [...best.values()].map((b) => b.c) };
 }
 
+const dayOf = (dt: string): string => dt.slice(0, 10);
+const daysApart = (a: string, b: string): number => (Date.parse(`${dayOf(b)}T00:00:00Z`) - Date.parse(`${dayOf(a)}T00:00:00Z`)) / 86_400_000;
+
+/**
+ * Depth charts (one file per season of dated snapshots, from 2025 on) -> per team, the newest snapshot and the one
+ * to compare it with: the newest taken at least `minDaysBefore` days earlier. A snapshot much smaller than the
+ * team's usual (a partial pull) is skipped for both. Only the groups in DEPTH.groups are kept.
+ */
+export function extractDepthCharts(t: Table, cfg: DepthConfig = DEPTH): Extracted<DepthSnapshot[]> {
+  const r = reader(t);
+  r.require('dt', 'team', 'player_name', 'gsis_id', 'pos_grp', 'pos_abb', 'pos_slot', 'pos_rank');
+  const by = new Map<string, Map<string, DepthRow[]>>();
+  for (const row of t.rows) {
+    const grp = r.str(row, 'pos_grp');
+    const team = r.str(row, 'team');
+    const dt = r.str(row, 'dt');
+    const id = r.str(row, 'gsis_id');
+    if (!cfg.groups[grp] || !team || !dt) continue;
+    const snaps = by.get(team) ?? new Map<string, DepthRow[]>();
+    by.set(team, snaps);
+    const rows = snaps.get(dt) ?? [];
+    snaps.set(dt, rows);
+    rows.push({ grp, pos: r.str(row, 'pos_abb'), slot: r.num(row, 'pos_slot'), rank: r.num(row, 'pos_rank'), id, name: r.str(row, 'player_name') });
+  }
+  const data: DepthSnapshot[] = [];
+  for (const [team, snaps] of [...by].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const dts = [...snaps.keys()].sort();
+    const full = Math.max(...dts.slice(-10).map((d) => snaps.get(d)?.length ?? 0));
+    const ok = dts.filter((d) => (snaps.get(d)?.length ?? 0) >= cfg.minRowsShare * full);
+    const dt = ok[ok.length - 1];
+    if (!dt) continue;
+    const prevDt = [...ok].reverse().find((d) => daysApart(d, dt) >= cfg.minDaysBefore) ?? null;
+    const sort = (rows: DepthRow[]): DepthRow[] => [...rows].sort((a, b) => a.grp.localeCompare(b.grp) || a.slot - b.slot || a.rank - b.rank);
+    data.push({ team, dt, rows: sort(snaps.get(dt) ?? []), prevDt, prev: prevDt ? sort(snaps.get(prevDt) ?? []) : [] });
+  }
+  return { data };
+}
+
+/** Injury reports -> one line per player per week (game designation and the week's practice status). */
+export function extractInjuries(t: Table, season: number): Extracted<InjuryRow[]> {
+  const r = reader(t);
+  r.require('season', 'season_type', 'team', 'week', 'gsis_id', 'position', 'full_name', 'report_status', 'practice_status', 'report_primary_injury', 'practice_primary_injury');
+  const data: InjuryRow[] = [];
+  let maxWeek = 0;
+  for (const row of t.rows) {
+    if (r.num(row, 'season') !== season || !isReg(r.str(row, 'season_type'))) continue;
+    const p = r.str(row, 'gsis_id');
+    if (!p) continue;
+    const wk = r.num(row, 'week');
+    maxWeek = Math.max(maxWeek, wk);
+    data.push({
+      p, t: r.str(row, 'team'), wk, name: r.str(row, 'full_name'), pos: r.str(row, 'position'),
+      report: r.str(row, 'report_status'), practice: r.str(row, 'practice_status'),
+      injury: r.str(row, 'report_primary_injury') || r.str(row, 'practice_primary_injury'),
+    });
+  }
+  return { data, maxWeek };
+}
+
 /** Dispatch: raw bytes of one source -> its compact data. */
 export async function extract(id: SourceId, buf: Uint8Array, name: string, season: number): Promise<Extracted> {
   if (id === 'contracts') return extractContracts(buf, season);
@@ -512,5 +571,7 @@ export async function extract(id: SourceId, buf: Uint8Array, name: string, seaso
     case 'roster_moves': return extractRosterHistory(t, season);
     case 'trades': return extractTrades(t, season);
     case 'draft': return extractDraft(t, season);
+    case 'depth_charts': return extractDepthCharts(t);
+    case 'injuries': return extractInjuries(t, season);
   }
 }

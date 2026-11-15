@@ -784,6 +784,52 @@ export const RED_ZONE: RedZoneConfig = {
 export const PBP_VERSION = 2;
 
 // ---------------------------------------------------------------------------------------------------------------
+// Depth charts (nflverse depth_charts, dated snapshots from 2025 on) and injury designations
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface DepthConfig {
+  /** Depth chart groups shown, offense first (the file's pos_grp; special teams are left out). */
+  groups: Record<string, 'offense' | 'defense'>;
+  /**
+   * "Changes since the previous snapshot": the current chart is the team's newest snapshot; it is compared with the
+   * newest snapshot taken at least this many calendar days earlier (UTC dates). nflverse snapshots ESPN about twice a
+   * day, so 0 would compare with a pull from a few hours before and almost never show a change.
+   */
+  minDaysBefore: number;
+  /** A snapshot with fewer rows than this share of the team's current one is treated as a partial pull and skipped. */
+  minRowsShare: number;
+  /** Players listed per slot on the page (the rest are behind "all"). */
+  shownPerSlot: number;
+  labels: { new: string; up: string; down: string; gone: string };
+}
+
+export const DEPTH: DepthConfig = {
+  groups: { '3WR 1TE': 'offense', 'Base 4-3 D': 'defense', 'Base 3-4 D': 'defense' },
+  minDaysBefore: 1,
+  minRowsShare: 0.8,
+  shownPerSlot: 3,
+  labels: { new: 'New', up: 'Up', down: 'Down', gone: 'Off the chart' },
+};
+
+/** Bump when the saved depth chart layout or the DEPTH selection rules change. */
+export const DEPTH_VERSION = 1;
+
+export interface InjuryConfig {
+  /** report_status (the game designation) -> short label. Others show as written. */
+  gameStatus: Record<string, string>;
+  /** practice_status -> short label. */
+  practice: Record<string, string>;
+  /** Weekly roster statuses shown as a designation when there is no injury report line (RES = a reserve list, e.g. IR). */
+  rosterStatus: Record<string, string>;
+}
+
+export const INJURY: InjuryConfig = {
+  gameStatus: { Out: 'Out', Doubtful: 'Doubtful', Questionable: 'Questionable' },
+  practice: { 'Did Not Participate In Practice': 'DNP', 'Limited Participation in Practice': 'Limited', 'Full Participation in Practice': 'Full' },
+  rosterStatus: { RES: 'Reserve/IR' },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Optional second ranking: a ratings source. OFF in this build.
 // ---------------------------------------------------------------------------------------------------------------
 
