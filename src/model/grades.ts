@@ -14,35 +14,41 @@ export interface UnitGrades {
   airRank: Record<string, number>;
 }
 
-export function cellsFor(teamGames: TeamGame[], play: 'pass' | 'rush'): Cell[] {
+/** What a unit is graded on: EPA per play, or series success (the share of plays in series that earned a first
+ * down or a touchdown). */
+export type UnitMetric = 'epa' | 'series';
+
+export function cellsFor(teamGames: TeamGame[], play: 'pass' | 'rush', metric: UnitMetric = 'epa'): Cell[] {
   return teamGames.map((g) => ({
     off: g.off,
     def: g.def,
     home: g.offHome,
     n: play === 'pass' ? g.passN : g.rushN,
-    sum: play === 'pass' ? g.passEpa : g.rushEpa,
+    sum: metric === 'epa' ? (play === 'pass' ? g.passEpa : g.rushEpa) : (play === 'pass' ? g.passSs ?? 0 : g.rushSs ?? 0),
   }));
 }
 
-export function gradeUnits(teamGames: TeamGame[], teams: string[], cfg: AdjustConfig = ADJUST): UnitGrades {
+function fitBoth(teamGames: TeamGame[], cfg: AdjustConfig, metric: UnitMetric): { pass: RidgeFit; rush: RidgeFit } {
   const fit = (play: 'pass' | 'rush'): RidgeFit =>
-    ridgeAdjust(cellsFor(teamGames, play), {
+    ridgeAdjust(cellsFor(teamGames, play, metric), {
       lambda: cfg.lambdaPlays[play],
       homeField: cfg.homeField,
       tolerance: cfg.tolerance,
       maxIterations: cfg.maxIterations,
     });
-  const fits = { pass: fit('pass'), rush: fit('rush') };
+  return { pass: fit('pass'), rush: fit('rush') };
+}
 
+/** Each team's four units from a pair of fits: adjusted value on the league's scale, raw value, grade and rank. */
+function unitResults(fits: { pass: RidgeFit; rush: RidgeFit }, teams: string[], decimals: number): Record<string, Record<UnitKey, UnitResult>> {
   const units: Record<string, Record<UnitKey, UnitResult>> = {};
   for (const t of teams) units[t] = {} as Record<UnitKey, UnitResult>;
-
   for (const key of UNIT_KEYS) {
     const u = UNITS[key];
     const f = fits[u.play];
     const effects = u.side === 'offense' ? f.off : f.def;
     const centre = mean(teams.map((t) => effects[t] ?? 0));
-    // displayed as EPA/play on the league's scale: league mean + the team's effect relative to the average team
+    // displayed on the league's scale: league mean + the team's effect relative to the average team
     const adjusted = teams.map((t) => f.leagueMean + ((effects[t] ?? 0) - centre));
     const good = u.side === 'offense' ? 1 : -1;
     const m = mean(adjusted);
@@ -52,14 +58,30 @@ export function gradeUnits(teamGames: TeamGame[], teams: string[], cfg: AdjustCo
       const raw = u.side === 'offense' ? f.rawOff[t] : f.rawDef[t];
       const a = adjusted[i] as number;
       (units[t] as Record<UnitKey, UnitResult>)[key] = {
-        adjusted: round(a, 4),
-        raw: round(raw?.mean ?? 0, 4),
+        adjusted: round(a, decimals),
+        raw: round(raw?.mean ?? 0, decimals),
         plays: raw?.n ?? 0,
         grade: round(100 * normalCdf((good * (a - m)) / s), GRADE.decimals),
         rank: rk[i] as number,
       };
     });
   }
+  return units;
+}
+
+/**
+ * Series success per unit, opponent-adjusted with the same ridge regression and penalty as EPA, on the same plays
+ * (garbage time removed). Shown beside EPA/play; the verdicts and odds still use EPA. Null when the play-by-play
+ * extract has no series column (an older saved copy).
+ */
+export function seriesGrades(teamGames: TeamGame[], teams: string[], cfg: AdjustConfig = ADJUST): Record<string, Record<UnitKey, UnitResult>> | null {
+  if (!teamGames.length || teamGames.some((g) => g.passSs === undefined || g.rushSs === undefined)) return null;
+  return unitResults(fitBoth(teamGames, cfg, 'series'), teams, 4);
+}
+
+export function gradeUnits(teamGames: TeamGame[], teams: string[], cfg: AdjustConfig = ADJUST): UnitGrades {
+  const fits = fitBoth(teamGames, cfg, 'epa');
+  const units = unitResults(fits, teams, 4);
 
   // pass-defense split: pass rush (sacks + hits per dropback, higher better) vs coverage (EPA/attempt, lower better)
   const rushRate: number[] = [];

@@ -29,6 +29,12 @@ export const UNITS: Record<UnitKey, UnitLabel> = {
   rushDefense: { short: 'Rush D', reason: 'rush D', long: 'Rush defense', side: 'defense', play: 'rush' },
 };
 
+/** The two measures a unit can be shown on (Front office board and team sheets). Verdicts and odds use EPA. */
+export const UNIT_METRICS: Record<'epa' | 'series', { label: string; short: string; offense: string; defense: string; decimals: number; percent: boolean }> = {
+  epa: { label: 'EPA/play', short: 'EPA', offense: 'EPA/play', defense: 'EPA/play allowed', decimals: 3, percent: false },
+  series: { label: 'Series success', short: 'Series', offense: 'series success', defense: 'series success allowed', decimals: 1, percent: true },
+};
+
 // ---------------------------------------------------------------------------------------------------------------
 // Opponent adjustment (ridge regression; see src/model/adjust.ts for why ridge)
 // ---------------------------------------------------------------------------------------------------------------
@@ -754,6 +760,177 @@ export const FANTASY_ALLOWED: FantasyAllowedConfig = {
   tolerance: 1e-9,
   maxIterations: 500,
   rankLabel: '1st = allows the most',
+};
+
+/**
+ * Red zone usage: targets and carries with the ball snapped at or inside each zone's yard line (play-by-play
+ * `yardline_100`, yards from the opponent's end zone), per player per week, and each player's share of his team's.
+ * Every play counts (no garbage-time filter), as for the other player stats; kneels, spikes and two-point tries don't.
+ */
+export interface RedZoneConfig {
+  /** Inside-out order is not required; each zone is counted on its own. Changing these needs PBP_VERSION bumped. */
+  zones: { key: string; label: string; maxYardline: number }[];
+}
+
+export const RED_ZONE: RedZoneConfig = {
+  zones: [
+    { key: 'in20', label: 'Inside the 20', maxYardline: 20 },
+    { key: 'in10', label: 'Inside the 10', maxYardline: 10 },
+  ],
+};
+
+/** Layout version of the saved play-by-play extract (2: series success, 3: per-play EPA for the personnel join). Bump when RED_ZONE.zones or the extract's fields change: a last
+ * good copy with another version is then not reused (it would hold other cutoffs). */
+export const PBP_VERSION = 3;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Depth charts (nflverse depth_charts, dated snapshots from 2025 on) and injury designations
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface DepthConfig {
+  /** Depth chart groups shown, offense first (the file's pos_grp; special teams are left out). */
+  groups: Record<string, 'offense' | 'defense'>;
+  /**
+   * "Changes since the previous snapshot": the current chart is the team's newest snapshot; it is compared with the
+   * newest snapshot taken at least this many calendar days earlier (UTC dates). nflverse snapshots ESPN about twice a
+   * day, so 0 would compare with a pull from a few hours before and almost never show a change.
+   */
+  minDaysBefore: number;
+  /** A snapshot with fewer rows than this share of the team's current one is treated as a partial pull and skipped. */
+  minRowsShare: number;
+  /** Players listed per slot on the page (the rest are behind "all"). */
+  shownPerSlot: number;
+  labels: { new: string; up: string; down: string; gone: string };
+}
+
+export const DEPTH: DepthConfig = {
+  groups: { '3WR 1TE': 'offense', 'Base 4-3 D': 'defense', 'Base 3-4 D': 'defense' },
+  minDaysBefore: 1,
+  minRowsShare: 0.8,
+  shownPerSlot: 3,
+  labels: { new: 'New', up: 'Up', down: 'Down', gone: 'Off the chart' },
+};
+
+/** Bump when the saved depth chart layout or the DEPTH selection rules change. */
+export const DEPTH_VERSION = 1;
+
+export interface InjuryConfig {
+  /** report_status (the game designation) -> short label. Others show as written. */
+  gameStatus: Record<string, string>;
+  /** practice_status -> short label. */
+  practice: Record<string, string>;
+  /** Weekly roster statuses shown as a designation when there is no injury report line (RES = a reserve list, e.g. IR). */
+  rosterStatus: Record<string, string>;
+  /** Practice list order: game designations first in this order, then practice status in this order. */
+  gameOrder: string[];
+  practiceOrder: string[];
+  /**
+   * What the practice column means. nflverse's injuries file has ONE practice status per player per week (the latest
+   * report), not one per day; checked Nov 15 2026 against 2026 weeks 1-10. The evening refreshes (Wed-Fri) pick up
+   * each day's update as nflverse publishes it, but the page only ever has the latest one.
+   */
+  practiceNote: string;
+}
+
+export const INJURY: InjuryConfig = {
+  gameStatus: { Out: 'Out', Doubtful: 'Doubtful', Questionable: 'Questionable' },
+  practice: { 'Did Not Participate In Practice': 'DNP', 'Limited Participation in Practice': 'Limited', 'Full Participation in Practice': 'Full' },
+  rosterStatus: { RES: 'Reserve/IR' },
+  gameOrder: ['Out', 'Doubtful', 'Questionable'],
+  practiceOrder: ['DNP', 'Limited', 'Full'],
+  practiceNote: 'Practice = the latest practice status on this week\'s report as nflverse has it (one per player per week, not one per day).',
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Personnel: estimated from snap counts, exact from FTN participation once a season is published
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Personnel estimate from snap counts (no per-play data needed).
+ *
+ * 1. Average players on the field per offensive snap, by position: the position's offense snaps (PFR snap counts,
+ *    by each player's listed position) over the team's offense snaps (the most any one of its players played).
+ * 2. Rates from the averages. If a team only ever used 1 or 2 tight ends, the share of 2-TE snaps would be exactly
+ *    (average TEs - 1); likewise for backs, and 4-WR snaps = (average WRs - 3). Real teams spread wider (some 0- and
+ *    3-TE snaps), which makes those shares too high, so each is multiplied by a scale fitted on a completed season:
+ *      heavy (2+ TE or 2+ RB) = heavyScale x ((TE - 1)+ + (RB - 1)+)
+ *      12 personnel           = twoTeScale x (TE - 1)+
+ *      11 personnel           = 1 - heavy - (WR - 3)+
+ *    each clamped to 0-1, where (x)+ = x clamped to 0-1. Season-to-date rates come from season-to-date averages.
+ * Validated against FTN participation (pipeline/validate-personnel.ts); the scales are refit there each season.
+ */
+export interface PersonnelConfig {
+  /** Snap count position -> the group counted (FB counts as a back). */
+  positions: Record<string, 'RB' | 'TE' | 'WR'>;
+  /** Fitted on 2025 (all 32 teams, FTN participation via nflverse; see validate-personnel.ts). */
+  heavyScale: number;
+  twoTeScale: number;
+  /** Season fitted on, shown with the method. */
+  fittedOn: number;
+  label: string;
+  /** Where exact current numbers are. Shown as text, without a scheme: the Play bundle check (platform) forbids any
+   * "http(s)://" string in the client, as the pick chart credit does. */
+  exactLink: { label: string; url: string };
+  /** Credit and license shown with exact FTN rates. */
+  ftnCredit: string;
+  /** Groupings listed in the exact tables (others are summed as "other"). */
+  groupings: string[];
+}
+
+export const PERSONNEL: PersonnelConfig = {
+  positions: { RB: 'RB', FB: 'RB', HB: 'RB', TE: 'TE', WR: 'WR' },
+  heavyScale: 0.83,
+  twoTeScale: 0.62,
+  fittedOn: 2025,
+  label: 'Estimated from snap counts',
+  exactLink: { label: 'SumerSports personnel tendencies', url: 'sumersports.com/teams/offensive/personnel-tendency' },
+  ftnCredit: 'FTN Data via nflverse (CC BY-SA 4.0)',
+  groupings: ['11', '12', '21', '13', '22', '10'],
+};
+
+/** Bump when the snap count extract's fields change (2: skill-position rows keep their position). */
+export const SNAPS_VERSION = 2;
+
+/**
+ * Slot for exact current-season personnel from another source. OFF. When on, the refresh reads `file`
+ * ({ "<TEAM>": { "<week>": { "<grouping, e.g. 11>": plays } } }) and the page shows those rates instead of the
+ * estimate. It may be turned on only for data we may republish: the refresh refuses unless republishAllowed is true.
+ */
+export interface PersonnelSourceConfig {
+  enabled: boolean;
+  label: string;
+  license: string;
+  republishAllowed: boolean;
+  file: string;
+}
+
+export const PERSONNEL_SOURCE: PersonnelSourceConfig = {
+  enabled: false,
+  label: '',
+  license: '',
+  republishAllowed: false,
+  file: 'data/personnel.json',
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+// Matchups: each game this week, unit against unit
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface MatchupConfig {
+  /** Edge = offense unit grade - opposing defense unit grade (both 0-100, 50 = average). Words by edge, best first. */
+  edgeWords: [number, string][];
+  fallbackWord: string;
+  /** Red zone: players listed per offense (most opportunities inside the first RED_ZONE zone, season). */
+  redZonePlayers: number;
+  /** Game designations listed on a matchup card (others, e.g. a full-practice note, are left to the Practice view). */
+  statuses: string[];
+}
+
+export const MATCHUP: MatchupConfig = {
+  edgeWords: [[20, 'Big edge offense'], [8, 'Edge offense'], [-8, 'Even'], [-20, 'Edge defense']],
+  fallbackWord: 'Big edge defense',
+  redZonePlayers: 3,
+  statuses: ['Out', 'Doubtful', 'Questionable'],
 };
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -30,6 +30,10 @@ export interface TeamGame {
   /** Non-sack pass attempts and their EPA (coverage half of pass D). */
   covN: number;
   covEpa: number;
+  /** Sums of nflfastR series_success (1 = the play's series earned a first down or touchdown) over the pass and rush
+   * plays counted above. Absent in a saved copy from before series success. */
+  passSs?: number;
+  rushSs?: number;
 }
 
 /** One player's counting stats in one game, from play-by-play (all plays, no garbage-time filter). */
@@ -43,6 +47,8 @@ export interface PlayerGame {
   tkl?: number; tfl?: number; sck?: number; qbh?: number; pd?: number; int?: number; ff?: number;
   /** Big-play EPA (BIG_PLAYS in config.ts): the EPA taken from the offense on plays he made one, his share. */
   big?: number;
+  /** Red zone: [targets, carries] for each of RED_ZONE.zones in order, flattened. Absent when all zero. */
+  rz?: number[];
 }
 
 export interface PfrPassRow { p: string; g: string; t: string; pressured: number; sacked: number }
@@ -57,7 +63,18 @@ export interface SnapRow {
   p: string; g: string; t: string; off: number; def: number;
   /** Player name, kept only for offensive linemen: the roster file has no PFR id for them, so they join by name. */
   n?: string;
+  /** Listed position, kept only for backs, tight ends and receivers (PERSONNEL.positions): the personnel estimate. */
+  pos?: string;
 }
+
+/** Per-play EPA by game: [play_id, EPA] for every pass and rush play (kneels, spikes, two-point tries left out). */
+export type PlayEpa = Record<string, [number, number][]>;
+
+/** FTN participation by game: [play_id, offense team, grouping ("11" = 1 RB, 1 TE)] for plays with a QB on the field. */
+export type Participation = Record<string, [number, string, string][]>;
+
+/** Exact personnel from another source (PERSONNEL_SOURCE): team -> week -> grouping -> plays. */
+export type PersonnelCounts = Record<string, Record<string, Record<string, number>>>;
 
 export interface NgsPassing { p: string; att: number; cpoe: number }
 export interface NgsReceiving { p: string; tgt: number; separation: number; yacOverExpected: number }
@@ -133,6 +150,41 @@ export interface TradeRow {
   conditional?: boolean;
 }
 
+/** One player on one depth chart snapshot. */
+export interface DepthRow {
+  /** Group (pos_grp), position (pos_abb), slot order on the chart, depth (1 = starter). */
+  grp: string;
+  pos: string;
+  slot: number;
+  rank: number;
+  id: string;
+  name: string;
+}
+
+/** A team's newest depth chart and the one it is compared with (DEPTH.minDaysBefore). */
+export interface DepthSnapshot {
+  team: string;
+  /** Snapshot time, ISO (the file's dt). */
+  dt: string;
+  rows: DepthRow[];
+  prevDt: string | null;
+  prev: DepthRow[];
+}
+
+/** One line of the weekly injury report (nflverse injuries). */
+export interface InjuryRow {
+  p: string;
+  t: string;
+  wk: number;
+  name: string;
+  pos: string;
+  /** Game designation: Out, Doubtful, Questionable, or '' (none). */
+  report: string;
+  /** The week's practice participation as nflverse has it (one value a week), or ''. */
+  practice: string;
+  injury: string;
+}
+
 export interface DraftPick { season: number; round: number; pick: number; team: string; gsis: string | null; name: string; pos: string }
 
 export interface ModelInputs {
@@ -155,6 +207,15 @@ export interface ModelInputs {
   rosterHistory?: RosterHistory[];
   trades?: TradeRow[];
   draft?: DraftPick[];
+  depthCharts?: DepthSnapshot[];
+  injuries?: InjuryRow[];
+  /** Personnel: this season's and last season's per-play EPA and FTN participation (each absent until published). */
+  plays?: PlayEpa;
+  prevPlays?: PlayEpa;
+  participation?: Participation;
+  prevParticipation?: Participation;
+  /** Exact current personnel, only when PERSONNEL_SOURCE is enabled. */
+  personnelCounts?: PersonnelCounts;
   /** gsis_id -> 0-100, only when the optional ratings source is enabled. */
   ratings?: Record<string, number>;
 }
@@ -184,6 +245,9 @@ export interface UnitResult {
   plays: number;
   grade: number;
   rank: number;
+  /** The same unit on series success (0-1: share of plays in series that earned a first down or TD), adjusted the
+   * same way. Shown beside EPA; verdicts use EPA. Absent when the play-by-play has no series column. */
+  series?: Omit<UnitResult, 'series'>;
 }
 
 export interface LineResult {
@@ -459,11 +523,185 @@ export interface FantasyAllowed {
   teams: Record<string, Partial<Record<FantasyPos, { season: FantasyAllowedWindow; recent: FantasyAllowedWindow | null }>>>;
 }
 
+export interface RedZonePlayer {
+  id: string;
+  name: string;
+  pos: string;
+  /** Season [targets, carries] per zone, flattened like PlayerGame.rz. */
+  season: number[];
+  /** [week, ...counts] for each week he had a red zone target or carry. */
+  weeks: number[][];
+}
+
+export interface RedZoneTeam {
+  /** Team totals, season and by week ([week, ...counts]). */
+  season: number[];
+  weeks: number[][];
+  /** Everyone with a red zone target or carry, most opportunities in the first zone first. */
+  players: RedZonePlayer[];
+}
+
+export interface RedZoneUsage {
+  zones: { key: string; label: string; maxYardline: number }[];
+  /** Weeks with play-by-play. */
+  weeks: number[];
+  teams: Record<string, RedZoneTeam>;
+}
+
+export interface DepthEntry {
+  id: string;
+  name: string;
+  rank: number;
+  /** Production score (0-100) and rank at his position group, when he is ranked. */
+  score: number | null;
+  group: PositionGroup | null;
+  /** This week's game designation or a reserve status, short label; null when healthy / not listed. */
+  designation: string | null;
+  /** Versus the compared snapshot: new to this slot, moved up or down (prevRank says from where), or unchanged. */
+  change: 'new' | 'up' | 'down' | null;
+  prevRank: number | null;
+}
+
+export interface DepthSlotView {
+  pos: string;
+  players: DepthEntry[];
+  /** Players on this slot in the compared snapshot who are no longer on it. */
+  gone: { id: string; name: string; prevRank: number }[];
+}
+
+export interface DepthChartView {
+  team: string;
+  /** Snapshot dates, YYYY-MM-DD. */
+  asOf: string;
+  comparedWith: string | null;
+  groups: { name: string; side: 'offense' | 'defense'; slots: DepthSlotView[] }[];
+  /** Number of flagged changes (new, up, down, gone). */
+  changes: number;
+}
+
+/** Personnel estimated from snap counts: average players on the field by position, and the rates they imply. */
+export interface PersonnelEstimate {
+  /** Offense snaps behind it. */
+  snaps: number;
+  rb: number;
+  te: number;
+  wr: number;
+  /** 0-1 shares of snaps. */
+  p11: number;
+  p12: number;
+  heavy: number;
+}
+
+export interface PersonnelTeam {
+  season: PersonnelEstimate;
+  /** One per game, oldest first. */
+  weeks: (PersonnelEstimate & { wk: number; opp: string })[];
+}
+
+export interface ExactGrouping {
+  /** "11", "12", ... or "other". */
+  code: string;
+  plays: number;
+  /** Share of the team's (or league's) plays, 0-1. */
+  rate: number;
+  /** EPA per play; null when no play could be joined to play-by-play. */
+  epa: number | null;
+}
+
+export interface ExactTeam {
+  plays: number;
+  p11: number;
+  p12: number;
+  heavy: number;
+  groupings: ExactGrouping[];
+}
+
+/** Exact personnel for one season (FTN participation via nflverse, or the PERSONNEL_SOURCE slot). */
+export interface PersonnelExact {
+  season: number;
+  credit: string;
+  league: ExactGrouping[];
+  teams: Record<string, ExactTeam & { weeks?: (Omit<ExactTeam, 'groupings'> & { wk: number })[] }>;
+}
+
+export interface Personnel {
+  method: string;
+  estimate: Record<string, PersonnelTeam>;
+  /** FTN participation for this season (published after it ends) and for last season, when on file. */
+  exactCurrent: PersonnelExact | null;
+  exactPrev: PersonnelExact | null;
+  /** The optional exact current-season source (PERSONNEL_SOURCE), when enabled. */
+  slot: PersonnelExact | null;
+}
+
+export interface PracticeRow {
+  id: string;
+  name: string;
+  pos: string;
+  /** Short labels (INJURY.practice / gameStatus); null when blank on the report. */
+  practice: string | null;
+  game: string | null;
+  injury: string;
+}
+
+export interface PracticeReport {
+  week: number;
+  /** True when the injury file has this week's report yet. */
+  published: boolean;
+  /** Latest week in the injury file. */
+  latestWeek: number;
+  note: string;
+  teams: Record<string, PracticeRow[]>;
+}
+
+/** One offense against one defense, for one play type. */
+export interface UnitClash {
+  offGrade: number;
+  offRank: number;
+  defGrade: number;
+  defRank: number;
+  /** offGrade - defGrade. */
+  edge: number;
+  word: string;
+}
+
+/** One team's offense against the other's defense in a game this week. */
+export interface MatchupSide {
+  team: string;
+  opp: string;
+  pass: UnitClash;
+  rush: UnitClash;
+  /** What the opponent's defense allows per game by position (season, adjusted), with its rank (1 = allows the most). */
+  fantasyAllowed: Partial<Record<FantasyPos, { adjusted: number; rank: number }>>;
+  /** This offense's top red zone players: share of the team's targets + carries inside each zone (season). */
+  redZone: { id: string; name: string; pos: string; shares: number[] }[];
+  /** This offense's personnel, season to date: exact (slot) when on, else estimated. */
+  personnel: { p11: number; p12: number; heavy: number; estimated: boolean } | null;
+  /** This team's players with a game designation this week. */
+  status: PracticeRow[];
+}
+
+export interface Matchup {
+  id: string;
+  week: number;
+  gameday: string;
+  home: string;
+  away: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  /** Away offense first, then home offense. */
+  sides: [MatchupSide, MatchupSide];
+}
+
 /** The This week tab. Optional in the output so a data file from before it still loads. */
 export interface ThisWeek {
   /** The first week with a game not yet played (or the last week, after the season). */
   week: number;
   fantasyAllowed: FantasyAllowed;
+  redZone?: RedZoneUsage;
+  personnel?: Personnel;
+  practice?: PracticeReport;
+  matchups?: Matchup[];
 }
 
 export interface ModelOutput {
@@ -483,4 +721,6 @@ export interface ModelOutput {
   rankingModes: RankingMode[];
   ratingsCredit: string | null;
   thisWeek?: ThisWeek;
+  /** Team depth charts (team sheets). */
+  depthCharts?: DepthChartView[];
 }

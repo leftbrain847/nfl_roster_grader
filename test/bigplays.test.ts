@@ -6,7 +6,7 @@ import { extractPbp } from '../pipeline/extract.ts';
 const COLS = ['season', 'season_type', 'game_id', 'week', 'pass', 'rush', 'epa', 'qb_epa', 'wp', 'success', 'sack', 'qb_hit', 'pass_attempt', 'cpoe',
   'posteam', 'defteam', 'posteam_type', 'location', 'passer_player_id', 'receiver_player_id', 'rusher_player_id',
   'solo_tackle_1_player_id', 'tackle_for_loss_1_player_id', 'sack_player_id', 'half_sack_1_player_id', 'half_sack_2_player_id',
-  'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id', 'forced_fumble_player_1_player_id'];
+  'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id', 'forced_fumble_player_1_player_id', 'yardline_100', 'series_success', 'play_id'];
 
 /** One play: the columns named in `set` take those values, the rest are empty. */
 const play = (set: Record<string, string>): string => COLS.map((c) => set[c] ?? {

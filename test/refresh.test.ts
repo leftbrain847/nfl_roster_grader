@@ -58,7 +58,12 @@ describe('refresh pipeline (fixtures, no network)', () => {
     expect(o.players.length).toBeGreaterThan(100);
     expect(o.players.some((p) => p.contract)).toBe(true);
     expect(o.rankingModes).toEqual(['production']);
-    expect(o.sources.map((s) => s.state)).toEqual(Array(16).fill('fresh'));
+    // FTN participation for the current season is only published after it ends: missing, with a note saying so
+    expect(o.sources.filter((s) => s.id !== 'participation').map((s) => s.state)).toEqual(Array(20).fill('fresh'));
+    expect(o.sources.find((s) => s.id === 'participation')).toMatchObject({ state: 'missing', note: expect.stringMatching(/after the season/) });
+    expect(o.thisWeek?.personnel?.exactCurrent).toBeNull();
+    expect(o.thisWeek?.personnel?.exactPrev?.season).toBe(2025);
+    expect(Object.keys(o.thisWeek?.personnel?.estimate ?? {})).toHaveLength(32);
     expect(o.dataAsOf).toBe('2026-09-21');
     expect(res.written).toContain(snapshotPath('pfr_def'));
   });
@@ -145,6 +150,18 @@ describe('refresh pipeline (fixtures, no network)', () => {
     await expect(refresh({ root, today: TODAY, fetcher: fixtureFetcher(), ratingsCfg: cfg })).rejects.toThrow(/republish/);
     const ok = await refresh({ root, today: TODAY, fetcher: fixtureFetcher(), ratingsCfg: { ...cfg, republishAllowed: true } });
     expect(ok.output.rankingModes).toEqual(['production', 'ratings', 'composite']);
+  });
+
+  it('the exact-personnel slot is off by default and refuses data we may not republish', async () => {
+    const { PERSONNEL_SOURCE } = await import('../src/model/config.ts');
+    expect(PERSONNEL_SOURCE.enabled).toBe(false);
+    writeFileSync(join(root, 'personnel.json'), JSON.stringify({ BUF: { 1: { 11: 40, 12: 15, 21: 5 }, 2: { 11: 30, 13: 10 } } }));
+    const cfg = { ...PERSONNEL_SOURCE, enabled: true, label: 'X', license: 'test', file: 'personnel.json', republishAllowed: false };
+    await expect(refresh({ root, today: TODAY, fetcher: fixtureFetcher(), personnelCfg: cfg })).rejects.toThrow(/republish/);
+    const ok = await refresh({ root, today: TODAY, fetcher: fixtureFetcher(), personnelCfg: { ...cfg, republishAllowed: true } });
+    const buf = ok.output.thisWeek?.personnel?.slot?.teams.BUF;
+    expect(buf).toMatchObject({ plays: 100, p11: 0.7, p12: 0.15, heavy: 0.3 }); // heavy = 12 + 21 + 13
+    expect(buf?.weeks?.map((w) => w.wk)).toEqual([1, 2]);
   });
 
   it('the committed sample page data matches what the fixtures produce', async () => {

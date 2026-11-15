@@ -3,9 +3,9 @@
  * what it covers (game ids or latest week), which decides fresh / lagging / kept.
  */
 import { gunzipSync } from 'node:zlib';
-import { BIG_PLAYS, GAME_LOG, LINE_TARGETS, MOVES, PLAY_FILTER } from '../src/model/config.ts';
+import { BIG_PLAYS, DEPTH, GAME_LOG, LINE_TARGETS, MOVES, PERSONNEL, PLAY_FILTER, RED_ZONE, type DepthConfig } from '../src/model/config.ts';
 import type {
-  Contract, ContractSeason, DraftPick, Game, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
+  Contract, ContractSeason, DepthRow, DepthSnapshot, DraftPick, Game, InjuryRow, Participation, PlayEpa, NgsPassing, NgsReceiving, NgsRushing, PfrDefRow, PfrPassRow, PfrRecRow, PfrRushRow, PlayerGame,
   PlayerWeek, RosterHistory, RosterPlayer, SnapRow, TeamGame, TradeRow,
 } from '../src/model/types.ts';
 import { parseCsv, reader, type Table } from './csv.ts';
@@ -50,13 +50,25 @@ export function extractSchedules(t: Table, season: number): Extracted<Game[]> {
   return { data: games, games: games.filter((g) => g.homeScore !== null).map((g) => g.id) };
 }
 
-export interface PbpData { teamGames: TeamGame[]; playerGames: PlayerGame[] }
+export interface PbpData { teamGames: TeamGame[]; playerGames: PlayerGame[]; plays?: PlayEpa }
 
 export function extractPbp(t: Table, season: number): Extracted<PbpData> {
   const r = reader(t);
   r.require('season', 'season_type', 'game_id', 'pass', 'rush', 'epa', 'qb_epa', 'wp', 'success', 'sack', 'qb_hit', 'pass_attempt', 'cpoe',
     'posteam', 'defteam', 'posteam_type', 'location', 'passer_player_id', 'receiver_player_id', 'rusher_player_id',
-    'solo_tackle_1_player_id', 'tackle_for_loss_1_player_id', 'sack_player_id', 'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id');
+    'solo_tackle_1_player_id', 'tackle_for_loss_1_player_id', 'sack_player_id', 'qb_hit_1_player_id', 'pass_defense_1_player_id', 'interception_player_id',
+    'yardline_100', 'series_success', 'play_id');
+  const plays: PlayEpa = {};
+  const zones = RED_ZONE.zones;
+  /** Red zone counts: slot 2i = targets in zone i, 2i + 1 = carries. */
+  const rz = (x: PlayerGame, yard: number | null, slot: 0 | 1): void => {
+    if (yard === null) return;
+    zones.forEach((z, i) => {
+      if (yard > z.maxYardline) return;
+      const a = (x.rz ??= Array<number>(2 * zones.length).fill(0));
+      a[2 * i + slot] = (a[2 * i + slot] ?? 0) + 1;
+    });
+  };
   const cells = new Map<string, TeamGame>();
   const players = new Map<string, PlayerGame>();
   const gameIds = new Set<string>();
@@ -84,6 +96,8 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
     const success = r.num(row, 'success');
     const sack = r.num(row, 'sack') === 1;
     const attempt = r.num(row, 'pass_attempt') === 1;
+    const yard = r.opt(row, 'yardline_100');
+    (plays[g] ??= []).push([r.num(row, 'play_id'), Math.round(epa * 1000) / 1000]);
 
     // team cells (garbage time filtered)
     const wp = r.opt(row, 'wp');
@@ -92,11 +106,13 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
       let c = cells.get(k);
       if (!c) {
         const home = r.str(row, 'posteam_type') === 'home' && r.str(row, 'location') !== 'Neutral' ? 1 : 0;
-        cells.set(k, (c = { game: g, off, def, offHome: home, passN: 0, passEpa: 0, rushN: 0, rushEpa: 0, rushHits: 0, covN: 0, covEpa: 0 }));
+        cells.set(k, (c = { game: g, off, def, offHome: home, passN: 0, passEpa: 0, rushN: 0, rushEpa: 0, rushHits: 0, covN: 0, covEpa: 0, passSs: 0, rushSs: 0 }));
       }
+      const ss = r.num(row, 'series_success');
       if (pass) {
         c.passN++;
         c.passEpa += epa;
+        c.passSs = (c.passSs ?? 0) + ss;
         if (sack || r.num(row, 'qb_hit') === 1) c.rushHits++;
         if (attempt && !sack) {
           c.covN++;
@@ -105,6 +121,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
       } else {
         c.rushN++;
         c.rushEpa += epa;
+        c.rushSs = (c.rushSs ?? 0) + ss;
       }
     }
 
@@ -128,6 +145,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
         const x = pg(rec, g, off);
         add(x, 'tgt', 1);
         add(x, 'tgtEpa', epa);
+        rz(x, yard, 0);
       }
     } else {
       const rb = r.str(row, 'rusher_player_id');
@@ -136,6 +154,7 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
         add(x, 'car', 1);
         add(x, 'carEpa', epa);
         add(x, 'carSucc', success);
+        rz(x, yard, 1);
       }
     }
     const credit = (col: string, key: keyof PlayerGame, v: number): void => {
@@ -166,9 +185,10 @@ export function extractPbp(t: Table, season: number): Extracted<PbpData> {
   const playerGames = [...players.values()].map((x) => {
     const o: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(x)) o[k] = typeof v === 'number' ? round4(v) : v;
+    if (x.rz?.every((n) => n === 0)) delete o.rz;
     return o as unknown as PlayerGame;
   });
-  return { data: { teamGames, playerGames }, games: [...gameIds] };
+  return { data: { teamGames, playerGames, plays }, games: [...gameIds] };
 }
 
 export function extractRosters(t: Table, season: number): Extracted<RosterPlayer[]> {
@@ -362,7 +382,53 @@ export const extractSnaps = (t: Table, s: number): Extracted<SnapRow[]> =>
     off: r.num(row, 'offense_snaps'),
     def: r.num(row, 'defense_snaps'),
     ...(LINE_TARGETS.depth.includes(r.str(row, 'position')) ? { n: r.str(row, 'player') } : {}),
+    ...(PERSONNEL.positions[r.str(row, 'position')] ? { pos: r.str(row, 'position') } : {}),
   }));
+
+/** Last season's play-by-play, reduced to what the personnel join needs: EPA by game and play_id. */
+export function extractPbpPlays(t: Table, season: number): Extracted<PlayEpa> {
+  const r = reader(t);
+  r.require('season', 'season_type', 'game_id', 'play_id', 'pass', 'rush', 'epa');
+  const plays: PlayEpa = {};
+  for (const row of t.rows) {
+    if (r.num(row, 'season') !== season || r.str(row, 'season_type') !== PLAY_FILTER.seasonType) continue;
+    if (r.num(row, 'pass') !== 1 && r.num(row, 'rush') !== 1) continue;
+    if (r.num(row, 'qb_kneel') === 1 || r.num(row, 'qb_spike') === 1 || r.num(row, 'two_point_attempt') === 1) continue;
+    const epa = r.opt(row, 'epa');
+    if (epa === null) continue;
+    (plays[r.str(row, 'game_id')] ??= []).push([r.num(row, 'play_id'), Math.round(epa * 1000) / 1000]);
+  }
+  return { data: plays, games: Object.keys(plays) };
+}
+
+/** "1 C, 2 G, 1 QB, 1 RB, 2 T, 1 TE, 3 WR" -> "11" (backs incl. fullbacks, then tight ends); null without a QB. */
+export function grouping(personnel: string): string | null {
+  const n: Record<string, number> = {};
+  for (const part of personnel.split(',')) {
+    const m = /^\s*(\d+)\s+([A-Z]+)\s*$/.exec(part);
+    if (m) n[m[2] as string] = (n[m[2] as string] ?? 0) + Number(m[1]);
+  }
+  if (!n.QB) return null;
+  const backs = Object.entries(PERSONNEL.positions).filter(([, g]) => g === 'RB').reduce((s, [p]) => s + (n[p] ?? 0), 0);
+  return `${backs}${n.TE ?? 0}`;
+}
+
+/** FTN participation (via nflverse) -> each regular-season offensive play's grouping. */
+export function extractParticipation(t: Table, season: number): Extracted<Participation> {
+  const r = reader(t);
+  r.require('nflverse_game_id', 'play_id', 'possession_team', 'offense_personnel');
+  const data: Participation = {};
+  for (const row of t.rows) {
+    const g = r.str(row, 'nflverse_game_id');
+    const m = /^(\d{4})_(\d{2})_/.exec(g);
+    if (!m || Number(m[1]) !== season || Number(m[2]) > 18) continue;
+    const code = grouping(r.str(row, 'offense_personnel'));
+    const team = r.str(row, 'possession_team');
+    if (!code || !team) continue;
+    (data[g] ??= []).push([r.num(row, 'play_id'), team, code]);
+  }
+  return { data, games: Object.keys(data) };
+}
 
 /** Weekly player stats -> one game-log line per skill player and defender (columns set in GAME_LOG). */
 export function extractPlayerWeeks(t: Table, season: number): Extracted<PlayerWeek[]> {
@@ -474,6 +540,65 @@ export async function extractContracts(buf: Uint8Array, season: number): Promise
   return { data: [...best.values()].map((b) => b.c) };
 }
 
+const dayOf = (dt: string): string => dt.slice(0, 10);
+const daysApart = (a: string, b: string): number => (Date.parse(`${dayOf(b)}T00:00:00Z`) - Date.parse(`${dayOf(a)}T00:00:00Z`)) / 86_400_000;
+
+/**
+ * Depth charts (one file per season of dated snapshots, from 2025 on) -> per team, the newest snapshot and the one
+ * to compare it with: the newest taken at least `minDaysBefore` days earlier. A snapshot much smaller than the
+ * team's usual (a partial pull) is skipped for both. Only the groups in DEPTH.groups are kept.
+ */
+export function extractDepthCharts(t: Table, cfg: DepthConfig = DEPTH): Extracted<DepthSnapshot[]> {
+  const r = reader(t);
+  r.require('dt', 'team', 'player_name', 'gsis_id', 'pos_grp', 'pos_abb', 'pos_slot', 'pos_rank');
+  const by = new Map<string, Map<string, DepthRow[]>>();
+  for (const row of t.rows) {
+    const grp = r.str(row, 'pos_grp');
+    const team = r.str(row, 'team');
+    const dt = r.str(row, 'dt');
+    const id = r.str(row, 'gsis_id');
+    if (!cfg.groups[grp] || !team || !dt) continue;
+    const snaps = by.get(team) ?? new Map<string, DepthRow[]>();
+    by.set(team, snaps);
+    const rows = snaps.get(dt) ?? [];
+    snaps.set(dt, rows);
+    rows.push({ grp, pos: r.str(row, 'pos_abb'), slot: r.num(row, 'pos_slot'), rank: r.num(row, 'pos_rank'), id, name: r.str(row, 'player_name') });
+  }
+  const data: DepthSnapshot[] = [];
+  for (const [team, snaps] of [...by].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const dts = [...snaps.keys()].sort();
+    const full = Math.max(...dts.slice(-10).map((d) => snaps.get(d)?.length ?? 0));
+    const ok = dts.filter((d) => (snaps.get(d)?.length ?? 0) >= cfg.minRowsShare * full);
+    const dt = ok[ok.length - 1];
+    if (!dt) continue;
+    const prevDt = [...ok].reverse().find((d) => daysApart(d, dt) >= cfg.minDaysBefore) ?? null;
+    const sort = (rows: DepthRow[]): DepthRow[] => [...rows].sort((a, b) => a.grp.localeCompare(b.grp) || a.slot - b.slot || a.rank - b.rank);
+    data.push({ team, dt, rows: sort(snaps.get(dt) ?? []), prevDt, prev: prevDt ? sort(snaps.get(prevDt) ?? []) : [] });
+  }
+  return { data };
+}
+
+/** Injury reports -> one line per player per week (game designation and the week's practice status). */
+export function extractInjuries(t: Table, season: number): Extracted<InjuryRow[]> {
+  const r = reader(t);
+  r.require('season', 'season_type', 'team', 'week', 'gsis_id', 'position', 'full_name', 'report_status', 'practice_status', 'report_primary_injury', 'practice_primary_injury');
+  const data: InjuryRow[] = [];
+  let maxWeek = 0;
+  for (const row of t.rows) {
+    if (r.num(row, 'season') !== season || !isReg(r.str(row, 'season_type'))) continue;
+    const p = r.str(row, 'gsis_id');
+    if (!p) continue;
+    const wk = r.num(row, 'week');
+    maxWeek = Math.max(maxWeek, wk);
+    data.push({
+      p, t: r.str(row, 'team'), wk, name: r.str(row, 'full_name'), pos: r.str(row, 'position'),
+      report: r.str(row, 'report_status'), practice: r.str(row, 'practice_status'),
+      injury: r.str(row, 'report_primary_injury') || r.str(row, 'practice_primary_injury'),
+    });
+  }
+  return { data, maxWeek };
+}
+
 /** Dispatch: raw bytes of one source -> its compact data. */
 export async function extract(id: SourceId, buf: Uint8Array, name: string, season: number): Promise<Extracted> {
   if (id === 'contracts') return extractContracts(buf, season);
@@ -494,5 +619,10 @@ export async function extract(id: SourceId, buf: Uint8Array, name: string, seaso
     case 'roster_moves': return extractRosterHistory(t, season);
     case 'trades': return extractTrades(t, season);
     case 'draft': return extractDraft(t, season);
+    case 'depth_charts': return extractDepthCharts(t);
+    case 'injuries': return extractInjuries(t, season);
+    case 'pbp_prev': return extractPbpPlays(t, season);
+    case 'participation':
+    case 'participation_prev': return extractParticipation(t, season);
   }
 }

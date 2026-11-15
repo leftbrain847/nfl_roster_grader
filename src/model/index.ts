@@ -1,11 +1,11 @@
 /** The whole model: inputs (compact nflverse data) -> what the page shows. Pure: no clock, no I/O, no randomness
  * beyond the seeded playoff sim. */
-import { BUY, DIVISIONS, RATINGS_SOURCE, TEAM_NAMES, UNIT_KEYS, UNITS, type RankingMode, type RatingsSourceConfig, type UnitKey } from './config.ts';
+import { BUY, DIVISIONS, PERSONNEL_SOURCE, RATINGS_SOURCE, type PersonnelSourceConfig, TEAM_NAMES, UNIT_KEYS, UNITS, type RankingMode, type RatingsSourceConfig, type UnitKey } from './config.ts';
 import { ranks } from './stats.ts';
 import { buyTargets, tradeChips } from './buy.ts';
 import { playerContract } from './contracts.ts';
 import { gradeLines, lineRaw, lineStarters, lineTargets } from './line.ts';
-import { weakestUnit } from './grades.ts';
+import { seriesGrades, weakestUnit } from './grades.ts';
 import { seasonState } from './odds.ts';
 import { divisionOf, recordText, scheduleLeft } from './playoffs.ts';
 import { rankPlayers } from './players.ts';
@@ -17,6 +17,11 @@ import { assertRatingsAllowed } from './ratings.ts';
 import { round } from './stats.ts';
 import { decideVerdict } from './verdict.ts';
 import { currentWeek, fantasyAllowed } from './fantasyAllowed.ts';
+import { redZoneUsage } from './redZone.ts';
+import { depthCharts } from './depth.ts';
+import { buildPersonnel } from './personnel.ts';
+import { practiceReport } from './practice.ts';
+import { buildMatchups } from './matchups.ts';
 import type { ModelInputs, ModelOutput, SourceStatus, TeamResult } from './types.ts';
 
 export interface BuildOptions {
@@ -24,6 +29,7 @@ export interface BuildOptions {
   dataAsOf: string;
   sample?: boolean;
   ratingsCfg?: RatingsSourceConfig;
+  personnelCfg?: PersonnelSourceConfig;
 }
 
 export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
@@ -58,8 +64,10 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     }
   };
 
+  const series = seriesGrades(inp.teamGames, teams);
   const results: TeamResult[] = teams.map((t) => {
     const units = grades.units[t] as TeamResult['units'];
+    if (series) for (const k of UNIT_KEYS) units[k] = { ...units[k], series: series[t]?.[k] };
     const weakest = weakestUnit(units);
     const r = recs[t] ?? { wins: 0, losses: 0, ties: 0, pointDiff: 0, games: 0 };
     const v = decideVerdict({
@@ -114,6 +122,14 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     season: inp.season, games: inp.games, teamGames: inp.teamGames, teams, seasonNow: season,
     players, values: value.players, contracts: inp.contracts,
   });
+  const week = currentWeek(inp.games);
+  const parts = {
+    fantasyAllowed: fantasyAllowed(inp.playerWeeks, inp.games, teams),
+    redZone: redZoneUsage(inp),
+    personnel: buildPersonnel(inp, opts.personnelCfg ?? PERSONNEL_SOURCE),
+    practice: practiceReport(inp.injuries ?? [], week),
+  };
+  const thisWeek = { week, ...parts, matchups: buildMatchups(inp.games, week, { ...parts, teams: results }) };
   const modes: RankingMode[] = ratingsCfg.enabled && inp.ratings ? ['production', 'ratings', 'composite'] : ['production'];
   return {
     schemaVersion: 1,
@@ -129,10 +145,8 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     sources: opts.sources,
     rankingModes: modes,
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,
-    thisWeek: {
-      week: currentWeek(inp.games),
-      fantasyAllowed: fantasyAllowed(inp.playerWeeks, inp.games, teams),
-    },
+    depthCharts: depthCharts(inp.depthCharts ?? [], players, inp.injuries ?? [], inp.roster, currentWeek(inp.games)),
+    thisWeek,
   };
 }
 
