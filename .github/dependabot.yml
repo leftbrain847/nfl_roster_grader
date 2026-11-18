@@ -3,6 +3,7 @@
 version: 2
 updates:
   - package-ecosystem: npm
+    assignees: [leftbrain847]
     directory: "/"
     schedule:
       interval: monthly
@@ -13,6 +14,7 @@ updates:
       majors:
         update-types: [major]
   - package-ecosystem: github-actions
+    assignees: [leftbrain847]
     directory: "/"
     schedule:
       interval: monthly
