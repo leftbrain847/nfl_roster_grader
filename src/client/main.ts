@@ -7,8 +7,9 @@ import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, INJURY, MATCHUP, type FantasyPos,
+  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, INJURY, MATCHUP, COMPARE, type FantasyPos,
 } from '../model/config.ts';
+import { buildComparison, comparable } from '../model/compare.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
@@ -57,6 +58,10 @@ const state = {
   rzTeam: '',
   rzWeek: 'season',
   metric: 'epa' as keyof typeof UNIT_METRICS,
+  /** Players picked to compare (ids), and whether the side-by-side sheet is open. */
+  compare: [] as string[],
+  comparing: false,
+  compareQuery: '',
 };
 
 const players = new Map(data.players.map((p) => [p.id, p]));
@@ -457,6 +462,7 @@ function playerSheet(p: PlayerProfile): HTMLElement {
         ]),
         el('button', { className: 'close', text: 'Close', onClick: closePlayer }),
       ]),
+      compareButton(p.id),
       ranked ? el('section', { className: 'shop' }, [
         el('h3', { text: `#${ranked.rank} of ${ranked.qualifiedAtPosition} ${POSITIONS[ranked.group].label}s` }),
         statLine(ranked),
@@ -468,6 +474,122 @@ function playerSheet(p: PlayerProfile): HTMLElement {
         el('p', { className: 'fine', text: `Snap% = share of the team's ${GAME_LOG.snapSide[p.kind] === 'off' ? 'offense' : 'defense'} snaps. ${GAME_LOG.columns[p.kind].map((c) => `${c.label} = ${c.title}`).join(' · ')}.` }),
       ]),
       el('section', { className: 'shop' }, [el('h3', { text: 'Contract' }), contractBox(p.contract)]),
+    ]),
+  ]);
+}
+
+// ------------------------------------------------------------------ compare players
+
+const compareHash = (): string => (state.compare.length ? `compare-${state.compare.join(',')}` : '');
+
+function toggleCompare(id: string): void {
+  if (state.compare.includes(id)) state.compare = state.compare.filter((x) => x !== id);
+  else if (state.compare.length < COMPARE.max && comparable(data, id)) state.compare = [...state.compare, id];
+  if (!state.compare.length) state.comparing = false;
+  if (state.comparing) setHash(compareHash());
+  draw();
+}
+
+/** On a player page: add him to (or take him out of) the comparison. */
+function compareButton(id: string): HTMLElement {
+  const inIt = state.compare.includes(id);
+  const full = !inIt && state.compare.length >= COMPARE.max;
+  const b = el('button', {
+    className: 'more',
+    text: inIt ? `In compare (${state.compare.length}/${COMPARE.max}): remove` : full ? `Compare is full (${COMPARE.max})` : `Add to compare (${state.compare.length}/${COMPARE.max})`,
+    attrs: { 'data-compare': id, 'aria-pressed': String(inIt) },
+    onClick: () => { toggleCompare(id); document.querySelector<HTMLElement>(`[data-compare="${id}"]`)?.focus(); },
+  });
+  if (full) b.disabled = true;
+  return b;
+}
+
+function openCompare(): void {
+  if (!state.compare.length) return;
+  state.comparing = true;
+  setHash(compareHash());
+  draw();
+  document.querySelector<HTMLElement>('.compare-sheet .close')?.focus();
+}
+
+function closeCompare(): void {
+  state.comparing = false;
+  setHash(state.player ? `player-${state.player}` : state.team ? `team-${state.team.toLowerCase()}` : '');
+  draw();
+  document.querySelector<HTMLElement>('.compare-bar .more, .player-sheet .close')?.focus();
+}
+
+/** Fixed at the bottom while players are picked and the comparison isn't open. */
+function compareBar(): HTMLElement | null {
+  if (!state.compare.length || state.comparing) return null;
+  const names = state.compare.map((id) => profiles.get(id)?.name ?? players.get(id)?.name ?? id).join(', ');
+  return el('div', { className: 'compare-bar', attrs: { role: 'region', 'aria-label': 'Compare players' } }, [
+    el('span', { className: 'compare-names', text: `Compare ${state.compare.length}/${COMPARE.max}: ${names}` }),
+    el('button', { className: 'more', text: 'Open', onClick: openCompare }),
+    el('button', { className: 'close', text: 'Clear', onClick: () => { state.compare = []; draw(); } }),
+  ]);
+}
+
+/** Add a player from inside the comparison: any player with a page or a score (no linemen). */
+function compareSearch(): HTMLElement | null {
+  if (state.compare.length >= COMPARE.max) return null;
+  const results = el('ul', { className: 'players', attrs: { 'aria-live': 'polite' } });
+  const fill = (): void => {
+    const q = fold(state.compareQuery);
+    const hits = q.length < GAME_LOG.searchMinChars ? [] : (data.profiles ?? []).filter((p) => !state.compare.includes(p.id) && folded.get(p.id)?.includes(q)).slice(0, GAME_LOG.searchResults);
+    results.replaceChildren(...hits.map((p) => el('li', { className: 'player' }, [
+      el('button', { className: 'player-head', onClick: () => { state.compareQuery = ''; toggleCompare(p.id); document.querySelector<HTMLElement>('.compare-sheet .search')?.focus(); } }, [
+        el('span', { className: 'p-main' }, [el('span', { className: 'p-name', text: p.name }), el('span', { className: 'p-meta', text: `${p.team} · ${p.pos}` })]),
+      ]),
+    ])));
+  };
+  const input = el('input', { className: 'search', attrs: { type: 'search', placeholder: `Add a player (${state.compare.length}/${COMPARE.max})`, 'aria-label': 'Add a player to compare', autocomplete: 'off', enterkeyhint: 'search' } });
+  input.value = state.compareQuery;
+  input.addEventListener('input', () => { state.compareQuery = input.value; fill(); });
+  fill();
+  return el('div', { className: 'finder' }, [input, results]);
+}
+
+function compareSheet(): HTMLElement {
+  const c = buildComparison(state.compare, data);
+  const n = c.players.length;
+  let section = '';
+  const body: HTMLElement[] = [];
+  for (const r of c.rows) {
+    if (r.section !== section) {
+      section = r.section;
+      // a plain cell, not the pinned first column: a pinned cell spanning every column would cover the others
+      body.push(el('tr', { className: 'cmp-sec' }, [el('td', { attrs: { colspan: String(n + 1) }, text: section })]));
+    }
+    body.push(el('tr', {}, [
+      el('th', { className: 'left', attrs: { scope: 'row', ...(r.title ? { title: r.title } : {}) }, text: r.label }),
+      ...r.cells.map((cell) => el('td', { className: `num${cell.best ? ' cmp-best' : ''}` }, [
+        el('span', { className: 'cmp-val', text: cell.text }),
+        cell.sub ? el('span', { className: 'cmp-sub', text: cell.sub }) : null,
+      ])),
+    ]));
+  }
+  return el('div', { className: 'sheet-backdrop', onClick: (e) => { if (e.target === e.currentTarget) closeCompare(); } }, [
+    el('article', { className: 'sheet compare-sheet', attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Compare players' } }, [
+      el('header', { className: 'sheet-head' }, [
+        el('div', {}, [el('p', { className: 'eyebrow', text: `${n} of ${COMPARE.max} players` }), el('h2', { text: 'Compare' })]),
+        el('button', { className: 'close', text: 'Close', onClick: closeCompare }),
+      ]),
+      el('div', { className: 'table-wrap' }, [
+        el('table', { className: 'log cmp' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { className: 'left', attrs: { scope: 'col' }, text: '' }),
+            ...c.players.map((p) => el('th', { attrs: { scope: 'col' } }, [
+              el('span', { className: 'cmp-name', text: p.name }),
+              el('span', { className: 'cmp-sub', text: `${p.team} · ${p.pos}` }),
+              el('button', { className: 'cmp-remove', text: 'Remove', attrs: { 'aria-label': `Remove ${p.name}` }, onClick: () => toggleCompare(p.id) }),
+            ])),
+          ])]),
+          el('tbody', {}, body),
+        ]),
+      ]),
+      compareSearch(),
+      el('p', { className: 'fine', text: 'Box score from the game log, with per-game figures underneath; only the sections that apply to the players picked. Advanced stats show the real value, with the percentile among qualified players at his position underneath. Green = best in the row, where it means the same for each (ranks only within one position; contract costs and games played never). Surplus = what his production is worth (the cap hit paid at that production percentile at his position) minus his cap hit. Linemen and specialists can\'t be compared: open data has no individual score for them. Share this view with the page\'s link.' }),
     ]),
   ]);
 }
@@ -1158,7 +1280,7 @@ function draw(): void {
     attrs: { 'aria-pressed': String(state.view === v), 'data-view': v },
     onClick: () => { state.view = v; draw(); },
   }));
-  render(el('div', { className: 'shell' }, [
+  render(el('div', { className: `shell${state.compare.length && !state.comparing ? ' with-bar' : ''}` }, [
     el('header', { className: 'top' }, [
       el('div', { className: 'brand' }, [
         el('h1', { text: 'Roster Grader' }),
@@ -1169,13 +1291,16 @@ function draw(): void {
     data.sample ? el('p', { className: 'banner', text: 'Sample data (weeks 1-2 of 2026): the nightly refresh has not run yet.' }) : null,
     el('main', {}, [state.view === 'week' ? weekView() : state.view === 'value' ? valueView() : state.view === 'players' ? playersView() : state.view === 'office' ? officeView() : movesView(), footer()]),
     team ? teamSheet(team) : null,
-    profile ? playerSheet(profile) : null,
+    profile && !state.comparing ? playerSheet(profile) : null,
+    state.comparing ? compareSheet() : null,
+    compareBar(),
   ]));
 }
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (state.player) closePlayer();
+  if (state.comparing) closeCompare();
+  else if (state.player) closePlayer();
   else if (state.team) closeTeam();
 });
 const fromHash = /^#team-([a-z]{2,3})$/.exec(location.hash)?.[1]?.toUpperCase();
@@ -1188,5 +1313,11 @@ const playerHash = /^#player-([0-9-]{4,12})$/.exec(location.hash)?.[1];
 if (playerHash && profiles.has(playerHash)) {
   state.player = playerHash;
   state.view = 'players';
+}
+// a shared comparison: #compare-<id>,<id>,<id>
+const compareIds = /^#compare-([0-9,-]{4,60})$/.exec(location.hash)?.[1]?.split(',').filter((id) => comparable(data, id)).slice(0, COMPARE.max);
+if (compareIds?.length) {
+  state.compare = [...new Set(compareIds)];
+  state.comparing = true;
 }
 draw();

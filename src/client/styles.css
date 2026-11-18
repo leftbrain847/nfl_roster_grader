@@ -282,3 +282,24 @@ button.d-link .d-name { color: var(--accent); }
 .m-line { display: grid; grid-template-columns: 5.6em 1fr; gap: 6px; font-size: 13px; }
 .m-label { color: var(--muted); font-weight: 600; }
 .d-even { background: var(--g3); color: var(--g-ink); }
+/* compare players */
+.compare-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding: 8px max(16px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.compare-names { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-bar .more { margin: 0; }
+.shell.with-bar { padding-bottom: 84px; }
+.compare-sheet .table-wrap { flex: none; }
+.cmp { white-space: normal; font-size: 12px; table-layout: fixed; }
+.cmp th, .cmp td { vertical-align: top; padding: 6px 4px; overflow-wrap: anywhere; }
+.cmp thead th { text-transform: none; letter-spacing: 0; font-family: var(--font); color: var(--fg); }
+.cmp th:first-child { width: 27%; padding-left: 8px; }
+.cmp tbody th { font-weight: 600; }
+.cmp-name { display: block; font-weight: 700; font-size: 13px; line-height: 1.2; }
+.cmp-val { display: block; }
+.cmp-sub { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+.cmp-best .cmp-val { color: var(--buy); font-weight: 800; }
+.cmp-sec td { text-align: left; font-family: var(--font-display); font-stretch: condensed; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); background: var(--bg); }
+.cmp-remove { display: block; margin-top: 4px; border: 0; background: none; padding: 2px 0; color: var(--sell); font-size: 12px; font-weight: 600; min-height: 28px; }
