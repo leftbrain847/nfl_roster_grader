@@ -410,7 +410,9 @@ function gameLog(p: PlayerProfile): HTMLElement {
       el('thead', {}, [el('tr', {}, head.map((h, i) => el('th', { text: h, className: i < 2 ? 'left' : '', attrs: { scope: 'col', title: titles[i] ?? h } })))]),
       el('tbody', {}, rows),
       el('tfoot', {}, [el('tr', {}, [
-        el('th', { className: 'left', attrs: { scope: 'row', colspan: '4' }, text: `Total · ${p.log.length} games` }),
+        // only the first column is pinned (sticky): a pinned cell spanning several columns would cover the totals
+        el('th', { className: 'left', attrs: { scope: 'row' }, text: 'Total' }),
+        el('td', { className: 'left', attrs: { colspan: '3' }, text: `${p.log.length} games` }),
         ...cells(logTotals(p.log, cols.map((c) => c.decimals))),
       ])]),
     ]),
@@ -980,7 +982,8 @@ function personnelView(): HTMLElement {
         ...rateCells(w),
       ]))),
       el('tfoot', {}, [el('tr', {}, [
-        el('th', { className: 'left', attrs: { scope: 'row', colspan: '2' }, text: 'Season' }),
+        el('th', { className: 'left', attrs: { scope: 'row' }, text: 'Season' }),
+        el('td', {}),
         ...[est.season.rb, est.season.te, est.season.wr].map((v) => el('td', { className: 'num', text: v.toFixed(2) })),
         ...rateCells(est.season),
       ])]),
