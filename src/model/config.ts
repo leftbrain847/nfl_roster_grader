@@ -934,6 +934,25 @@ export const MATCHUP: MatchupConfig = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Compare players side by side
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface CompareConfig {
+  /** Players compared at once (3 still fits a phone). */
+  max: number;
+  /** Game-log totals where fewer is better (by column title). */
+  lowerIsBetterTotals: string[];
+  /** Section headings, in order. */
+  sections: { production: string; season: string; contract: string; value: string };
+}
+
+export const COMPARE: CompareConfig = {
+  max: 3,
+  lowerIsBetterTotals: ['Interceptions thrown', 'Sacks taken'],
+  sections: { production: 'Production', season: 'Season stats', contract: 'Contract', value: 'Value' },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Optional second ranking: a ratings source. OFF in this build.
 // ---------------------------------------------------------------------------------------------------------------
 
