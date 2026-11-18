@@ -99,7 +99,7 @@ export function buildComparison(ids: string[], out: CompareData, cfg: CompareCon
   }
 
   // season totals from the game log, matched across positions by column title ("Receiving yards", ...)
-  rows.push(row(S.season, 'Games', pr.map((p) => (p ? p.log.length : null)), (v) => String(v)));
+  rows.push(row(S.season, 'Games', pr.map((p) => (p ? p.log.length : null)), (v) => String(v), { compare: false }));
   const cols: { title: string; label: string; decimals: number }[] = [];
   for (const p of pr) for (const c of p ? GAME_LOG.columns[p.kind] : []) if (!cols.some((t) => t.title === c.title)) cols.push({ title: c.title, label: c.label, decimals: c.decimals });
   const totals = pr.map((p) => (p ? logTotals(p.log, GAME_LOG.columns[p.kind].map((c) => c.decimals)) : null));

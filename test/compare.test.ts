@@ -55,7 +55,7 @@ describe('compare players', () => {
   it('season totals are summed from the game log and marked; costs are never marked', () => {
     const c = buildComparison(['wr1', 'wr2'], data);
     expect(find(c, 'Receiving yards')!.cells.map((x) => [x.text, x.best])).toEqual([['180', true], ['150', false]]);
-    expect(find(c, 'Games')!.cells.map((x) => x.text)).toEqual(['2', '3']);
+    expect(find(c, 'Games')!.cells.map((x) => [x.text, x.best])).toEqual([['2', false], ['3', false]]); // games played isn't marked
     expect(find(c, 'Cap hit 2026')!.cells.map((x) => [x.text, x.best])).toEqual([['$20.00M', false], ['$2.00M', false]]);
     expect(find(c, 'Surplus (worth - cap hit)')!.cells.map((x) => [x.text, x.best])).toEqual([['+$5.0M', true], ['+$4.0M', false]]);
     // only one player has a fantasy line: shown, not marked
