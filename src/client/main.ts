@@ -587,7 +587,7 @@ function compareSheet(): HTMLElement {
         ]),
       ]),
       compareSearch(),
-      el('p', { className: 'fine', text: 'Real values, with the percentile among qualified players at his position underneath. Green = best in the row, where it means the same for each (ranks only within one position; contract costs never). Season stats are totals from the game log. Surplus = what his production is worth (the cap hit paid at that production percentile at his position) minus his cap hit. Linemen and specialists can\'t be compared: open data has no individual score for them. Share this view with the page\'s link.' }),
+      el('p', { className: 'fine', text: 'Box score from the game log, with per-game figures underneath; only the sections that apply to the players picked. Advanced stats show the real value, with the percentile among qualified players at his position underneath. Green = best in the row, where it means the same for each (ranks only within one position; contract costs and games played never). Surplus = what his production is worth (the cap hit paid at that production percentile at his position) minus his cap hit. Linemen and specialists can\'t be compared: open data has no individual score for them. Share this view with the page\'s link.' }),
     ]),
   ]);
 }

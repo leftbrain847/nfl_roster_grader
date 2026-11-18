@@ -937,19 +937,91 @@ export const MATCHUP: MatchupConfig = {
 // Compare players side by side
 // ---------------------------------------------------------------------------------------------------------------
 
+/**
+ * One box-score row: a season total from the game log, found by column title (GAME_LOG.columns[...].title; the first
+ * of `titles` the player's log has), or a rate of two totals (`ratio`: num / den x scale).
+ */
+export interface CompareStat {
+  label: string;
+  titles?: string[];
+  ratio?: { num: string; den: string; scale: number; decimals: number; suffix?: string };
+  /** Show the per-game figure underneath. */
+  perGame?: boolean;
+  lowerIsBetter?: boolean;
+  /** Never mark a best (e.g. games played). */
+  noBest?: boolean;
+}
+
 export interface CompareConfig {
   /** Players compared at once (3 still fits a phone). */
   max: number;
-  /** Game-log totals where fewer is better (by column title). */
-  lowerIsBetterTotals: string[];
-  /** Section headings, in order. */
-  sections: { production: string; season: string; contract: string; value: string };
+  /**
+   * Box score, in order. A section shows only when a picked player has a number in it, and a row only when a picked
+   * player's number is not zero (two QBs: no receiving section).
+   */
+  boxScore: { section: string; rows: CompareStat[] }[];
+  /** The other section headings. */
+  sections: { production: string; advanced: string; contract: string; value: string };
 }
 
 export const COMPARE: CompareConfig = {
   max: 3,
-  lowerIsBetterTotals: ['Interceptions thrown', 'Sacks taken'],
-  sections: { production: 'Production', season: 'Season stats', contract: 'Contract', value: 'Value' },
+  boxScore: [
+    {
+      section: 'Season',
+      rows: [
+        { label: 'Games', titles: ['Games'], noBest: true },
+        { label: 'Fantasy points (PPR)', titles: ['Fantasy points (PPR scoring)'], perGame: true },
+        { label: 'EPA', titles: ['Expected points added, passing plus rushing', 'Expected points added, rushing plus receiving'], perGame: true },
+      ],
+    },
+    {
+      section: 'Passing',
+      rows: [
+        { label: 'Completions', titles: ['Completions'] },
+        { label: 'Attempts', titles: ['Pass attempts'] },
+        { label: 'Completion %', ratio: { num: 'Completions', den: 'Pass attempts', scale: 100, decimals: 1, suffix: '%' } },
+        { label: 'Passing yards', titles: ['Passing yards'], perGame: true },
+        { label: 'Yards per attempt', ratio: { num: 'Passing yards', den: 'Pass attempts', scale: 1, decimals: 1 } },
+        { label: 'Passing TDs', titles: ['Passing touchdowns'] },
+        { label: 'Interceptions', titles: ['Interceptions thrown'], lowerIsBetter: true },
+        { label: 'Sacks taken', titles: ['Sacks taken'], lowerIsBetter: true },
+      ],
+    },
+    {
+      section: 'Rushing',
+      rows: [
+        { label: 'Carries', titles: ['Carries'] },
+        { label: 'Rushing yards', titles: ['Rushing yards'], perGame: true },
+        { label: 'Yards per carry', ratio: { num: 'Rushing yards', den: 'Carries', scale: 1, decimals: 1 } },
+        { label: 'Rushing TDs', titles: ['Rushing touchdowns'] },
+      ],
+    },
+    {
+      section: 'Receiving',
+      rows: [
+        { label: 'Targets', titles: ['Targets'] },
+        { label: 'Receptions', titles: ['Receptions'] },
+        { label: 'Catch %', ratio: { num: 'Receptions', den: 'Targets', scale: 100, decimals: 1, suffix: '%' } },
+        { label: 'Receiving yards', titles: ['Receiving yards'], perGame: true },
+        { label: 'Yards per catch', ratio: { num: 'Receiving yards', den: 'Receptions', scale: 1, decimals: 1 } },
+        { label: 'Receiving TDs', titles: ['Receiving touchdowns'] },
+      ],
+    },
+    {
+      section: 'Defense',
+      rows: [
+        { label: 'Tackles', titles: ['Tackles, solo and assisted'], perGame: true },
+        { label: 'Tackles for loss', titles: ['Tackles for loss'] },
+        { label: 'Sacks', titles: ['Sacks'] },
+        { label: 'QB hits', titles: ['Quarterback hits'] },
+        { label: 'Interceptions', titles: ['Interceptions'] },
+        { label: 'Passes defended', titles: ['Passes defended'] },
+        { label: 'Forced fumbles', titles: ['Forced fumbles'] },
+      ],
+    },
+  ],
+  sections: { production: 'Production', advanced: 'Advanced (percentile at his position)', contract: 'Contract', value: 'Value' },
 };
 
 // ---------------------------------------------------------------------------------------------------------------

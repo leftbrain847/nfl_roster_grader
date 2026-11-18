@@ -1,8 +1,10 @@
 /**
- * Players side by side: production (score, rank and each stat's real value with its percentile), season totals from
- * the game log, contract and value. Any mix of positions; a row a player has no number for shows "-". The best number
- * in a row is marked when at least two players have one and the row means the same thing for each (a rank only within
- * one position). Offensive linemen have no player page or score, so they can't be picked.
+ * Players side by side: production score and rank; a box score from the game log by section (COMPARE.boxScore:
+ * passing, rushing, receiving, defense, with rates and per-game figures; only the sections and rows that apply to the
+ * players picked); the advanced stats behind the score (real value, percentile underneath); contract; value. Any mix
+ * of positions; a row a player has no number for shows "-". The best number in a row is marked when at least two
+ * players have one and the row means the same thing for each (a rank only within one position, costs never).
+ * Offensive linemen have no player page or score, so they can't be picked.
  */
 import { COMPARE, GAME_LOG, STATS, type CompareConfig, type StatKey } from './config.ts';
 import { logTotals } from './profiles.ts';
@@ -79,36 +81,56 @@ export function buildComparison(ids: string[], out: CompareData, cfg: CompareCon
   const S = cfg.sections;
   const rows: CompareRow[] = [];
 
-  // production
+  // production: the score and where it ranks
   rows.push(row(S.production, 'Production score', r.map((p) => (p ? Math.round(p.scores.production) : null)), (v) => String(v)));
   const oneGroup = r.every((p) => p) && new Set(r.map((p) => p?.group)).size === 1;
   rows.push(row(S.production, 'Position rank', r.map((p) => p?.rank ?? null), (v, i) => `#${v} of ${r[i]?.qualifiedAtPosition} ${r[i]?.group}`, { lowerIsBetter: true, compare: oneGroup }));
-  rows.push({ section: S.production, label: 'Volume', cells: r.map((p) => (p ? { text: p.volume, best: false } : DASH)) });
+
+  // box score: season totals from the game log (found by column title, so positions line up) and rates of them
+  const totals = pr.map((p) => {
+    if (!p) return null;
+    const cols = GAME_LOG.columns[p.kind];
+    const sums = logTotals(p.log, cols.map((c) => c.decimals));
+    const m = new Map<string, number>(cols.map((c, k) => [c.title, sums[k] ?? 0]));
+    m.set('Games', p.log.length);
+    return m;
+  });
+  const games = pr.map((p) => p?.log.length ?? 0);
+  for (const block of cfg.boxScore) {
+    for (const s of block.rows) {
+      const vals = totals.map((t) => {
+        if (!t) return null;
+        if (s.ratio) {
+          const num = t.get(s.ratio.num);
+          const den = t.get(s.ratio.den);
+          return num === undefined || !den ? null : round((s.ratio.scale * num) / den, s.ratio.decimals);
+        }
+        const title = s.titles?.find((x) => t.has(x));
+        return title === undefined ? null : (t.get(title) as number);
+      });
+      // only rows that apply to the players picked: a number other than zero for at least one of them
+      if (!vals.some((v) => v !== null && v !== 0)) continue;
+      const decimals = s.ratio?.decimals ?? (vals.some((v) => v !== null && !Number.isInteger(v)) ? 1 : 0);
+      const built = row(block.section, s.label, vals, (v) => `${v.toFixed(decimals)}${s.ratio?.suffix ?? ''}`, { lowerIsBetter: s.lowerIsBetter, compare: !s.noBest });
+      if (s.perGame) built.cells = built.cells.map((cell, i) => (vals[i] === null || vals[i] === 0 || !games[i] ? cell : { ...cell, sub: `${((vals[i] as number) / (games[i] as number)).toFixed(1)} a game` }));
+      rows.push(built);
+    }
+  }
+
+  // advanced: each stat's real value, with its percentile at the position underneath
+  rows.push({ section: S.advanced, label: 'Volume', cells: r.map((p) => (p ? { text: p.volume, best: false } : DASH)) });
   const keys: StatKey[] = [];
   for (const p of r) for (const s of p?.stats ?? []) if (!keys.includes(s.key)) keys.push(s.key);
   for (const k of keys) {
     const d = STATS[k];
     const stat = r.map((p) => p?.stats.find((s) => s.key === k));
-    // the real value is shown; the best is the highest percentile (already flipped for lower-is-better stats)
-    const byPct = row(S.production, d.label, stat.map((s) => (s ? s.pct : null)), () => '');
+    // the best is the highest percentile (already flipped for lower-is-better stats)
+    const byPct = row(S.advanced, d.label, stat.map((s) => (s ? s.pct : null)), () => '');
     rows.push({
-      section: S.production,
+      section: S.advanced,
       label: d.label,
       cells: stat.map((s, i) => (s ? { text: `${s.value.toFixed(d.decimals)}${d.suffix ?? ''}`, sub: `${ordinal(Math.round(s.pct))} pct`, best: byPct.cells[i]?.best ?? false } : DASH)),
     });
-  }
-
-  // season totals from the game log, matched across positions by column title ("Receiving yards", ...)
-  rows.push(row(S.season, 'Games', pr.map((p) => (p ? p.log.length : null)), (v) => String(v), { compare: false }));
-  const cols: { title: string; label: string; decimals: number }[] = [];
-  for (const p of pr) for (const c of p ? GAME_LOG.columns[p.kind] : []) if (!cols.some((t) => t.title === c.title)) cols.push({ title: c.title, label: c.label, decimals: c.decimals });
-  const totals = pr.map((p) => (p ? logTotals(p.log, GAME_LOG.columns[p.kind].map((c) => c.decimals)) : null));
-  for (const t of cols) {
-    const vals = pr.map((p, i) => {
-      const k = p ? GAME_LOG.columns[p.kind].findIndex((c) => c.title === t.title) : -1;
-      return k >= 0 ? (totals[i]?.[k] ?? 0) : null;
-    });
-    rows.push(row(S.season, t.title, vals, (v) => v.toFixed(t.decimals), { lowerIsBetter: cfg.lowerIsBetterTotals.includes(t.title), title: t.label }));
   }
 
   // contract: a cost isn't good or bad on its own, so nothing is marked
@@ -124,7 +146,6 @@ export function buildComparison(ids: string[], out: CompareData, cfg: CompareCon
   const f = picked.map((id) => fantasy.get(id));
   rows.push(row(S.value, 'Production worth', v.map((x) => x?.worthMillions ?? null), (x) => money(x), { compare: false }));
   rows.push(row(S.value, 'Surplus (worth - cap hit)', v.map((x) => (x ? round(x.surplus, 1) : null)), (x) => signedMoney(x)));
-  rows.push(row(S.value, 'Fantasy points per game', f.map((x) => x?.perGame ?? null), (x) => x.toFixed(1)));
   rows.push(row(S.value, 'Fantasy points per $1M', f.map((x) => x?.perMillion ?? null), (x) => x.toFixed(1)));
 
   // leave out rows nobody has a number for

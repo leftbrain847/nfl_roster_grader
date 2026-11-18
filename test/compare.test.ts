@@ -59,7 +59,7 @@ describe('compare players', () => {
     expect(find(c, 'Cap hit 2026')!.cells.map((x) => [x.text, x.best])).toEqual([['$20.00M', false], ['$2.00M', false]]);
     expect(find(c, 'Surplus (worth - cap hit)')!.cells.map((x) => [x.text, x.best])).toEqual([['+$5.0M', true], ['+$4.0M', false]]);
     // only one player has a fantasy line: shown, not marked
-    expect(find(c, 'Fantasy points per game')!.cells.map((x) => [x.text, x.best])).toEqual([['-', false], ['10.0', false]]);
+    expect(find(c, 'Fantasy points per $1M')!.cells.map((x) => [x.text, x.best])).toEqual([['-', false], ['15.0', false]]);
   });
 
   it('mixed positions: shared rows line up, others show a dash, ranks across positions are not marked', () => {
@@ -75,7 +75,7 @@ describe('compare players', () => {
   it('fewer interceptions is better', () => {
     const more = { ...data, profiles: [...data.profiles, profile('qb2', 'QB', 'QB', [{ Int: 4 }])] };
     const c = buildComparison(['qb1', 'qb2'], more);
-    expect(find(c, 'Interceptions thrown')!.cells.map((x) => [x.text, x.best])).toEqual([['2', true], ['4', false]]);
+    expect(find(c, 'Interceptions')!.cells.map((x) => [x.text, x.best])).toEqual([['2', true], ['4', false]]);
   });
 
   it(`at most ${COMPARE.max} players, no repeats, unknown ids (e.g. a lineman) dropped`, () => {
@@ -85,5 +85,32 @@ describe('compare players', () => {
     expect(comparable(data, 'lineman')).toBe(false);
     const unranked = buildComparison(['wr3', 'wr1'], data);
     expect(find(unranked, 'Production score')!.cells.map((x) => x.text)).toEqual(['-', '90']);
+  });
+
+  it('box score: only the sections that apply to the players picked, with rates and per-game figures', () => {
+    const qbs = {
+      ...data,
+      profiles: [
+        profile('a', 'QB', 'QB', [{ Cmp: 20, Att: 30, Yds: 250, TD: 2, Car: 4, RuYd: 20 }, { Cmp: 25, Att: 35, Yds: 300, TD: 3, Int: 1, Car: 2, RuYd: 10, RuTD: 1 }]),
+        profile('b', 'QB', 'QB', [{ Cmp: 15, Att: 30, Yds: 180, TD: 1, Int: 2, Car: 6, RuYd: 40 }]),
+        profile('lb', 'LB', 'DEF', [{ Tkl: 9, TFL: 1, Sck: 0.5 }, { Tkl: 7 }]),
+      ],
+    };
+    const c = buildComparison(['a', 'b'], qbs);
+    const sections = [...new Set(c.rows.map((r) => r.section))];
+    expect(sections).toEqual(['Season', 'Passing', 'Rushing']); // no receiving or defense for two QBs (and these two have no score or contract)
+    expect(find(c, 'Passing yards')!.cells.map((x) => [x.text, x.sub, x.best])).toEqual([['550', '275.0 a game', true], ['180', '180.0 a game', false]]);
+    expect(find(c, 'Completion %')!.cells.map((x) => [x.text, x.best])).toEqual([['69.2%', true], ['50.0%', false]]);
+    expect(find(c, 'Yards per attempt')!.cells.map((x) => x.text)).toEqual(['8.5', '6.0']);
+    expect(find(c, 'Interceptions')!.cells.map((x) => [x.text, x.best])).toEqual([['1', true], ['2', false]]);
+    expect(find(c, 'Rushing TDs')!.cells.map((x) => x.text)).toEqual(['1', '0']);
+    expect(find(c, 'Sacks taken')).toBeUndefined(); // zero for both: not shown
+    expect(find(c, 'Games')!.cells.every((x) => !x.best)).toBe(true);
+
+    // a QB and a linebacker: each one's sections, a dash where a section isn't his
+    const mixed = buildComparison(['a', 'lb'], qbs);
+    expect(find(mixed, 'Tackles')!.cells.map((x) => [x.text, x.sub])).toEqual([['-', undefined], ['16', '8.0 a game']]);
+    expect(find(mixed, 'Sacks')!.cells.map((x) => x.text)).toEqual(['-', '0.5']);
+    expect(find(mixed, 'Passing TDs')!.cells.map((x) => x.text)).toEqual(['5', '-']);
   });
 });
