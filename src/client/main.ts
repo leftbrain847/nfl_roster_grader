@@ -29,6 +29,8 @@ const state = {
   desc: true,
   filter: 'all' as Verdict | 'all',
   group: 'QB' as PositionGroup | 'OL',
+  /** Production tab: one team's players, or every team's. */
+  prodTeam: 'all',
   mode: 'production' as RankingMode,
   team: null as string | null,
   /** The open player page, on top of the team sheet if both are open. */
@@ -684,7 +686,9 @@ function playersView(): HTMLElement {
       ]))),
   ]);
   const group = state.group;
-  const list = data.players.filter((p) => p.group === group).sort((a, b) => score(b) - score(a));
+  const atPosition = data.players.filter((p) => p.group === group);
+  const list = atPosition.filter((p) => state.prodTeam === 'all' || p.team === state.prodTeam).sort((a, b) => score(b) - score(a));
+  const teamCodes = [...teams.keys()].sort();
   const pos = POSITIONS[group];
   const weights = Object.entries(pos.weights).map(([k, w]) => `${STATS[k as keyof typeof STATS].label} ${Math.round(100 * (w ?? 0))}%`).join(' · ');
   const minWord = { dropbacks: 'dropbacks', carries: 'carries', targets: 'targets', defenseSnaps: 'defense snaps' }[pos.minimum.per];
@@ -692,9 +696,14 @@ function playersView(): HTMLElement {
     profiles.size ? playerSearch() : null,
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, groups),
     modes,
-    el('h2', { className: 'pos-title', text: `${pos.label}s` }),
-    el('p', { className: 'fine', text: `${weights}. Minimum ${pos.minimum.perTeamGame} ${minWord} per team game. ${list.length} qualified.` }),
-    el('ol', { className: 'players' }, list.map((p, i) => playerCard(p, { showTeam: true, rank: i + 1 }))),
+    el('div', { className: 'picks' }, [
+      selectBox('Team', state.prodTeam, [['all', 'All teams'], ...teamCodes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()])], (v) => { state.prodTeam = v; draw(); }),
+    ]),
+    el('h2', { className: 'pos-title', text: `${state.prodTeam === 'all' ? '' : `${state.prodTeam} `}${pos.label}s` }),
+    el('p', { className: 'fine', text: `${weights}. Minimum ${pos.minimum.perTeamGame} ${minWord} per team game. ${atPosition.length} qualified${state.prodTeam === 'all' ? '' : `, ${list.length} on ${state.prodTeam}; the score and #rank are still league-wide`}.` }),
+    list.length
+      ? el('ol', { className: 'players' }, list.map((p, i) => playerCard(p, { showTeam: true, rank: i + 1 })))
+      : el('p', { className: 'fine', text: `No qualified ${pos.label.toLowerCase()}s on ${state.prodTeam} yet.` }),
   ]);
 }
 
