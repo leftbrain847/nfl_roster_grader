@@ -102,6 +102,11 @@ function verdictPill(v: Verdict): HTMLElement {
   return el('span', { className: `pill v-${v.replace(' ', '-')}`, text: VERDICT.labels[v] });
 }
 
+/** After a redraw: put keyboard focus back on the control that caused it (the page is rebuilt each time). */
+function focusOn(selector: string): void {
+  document.querySelector<HTMLElement>(selector)?.focus();
+}
+
 function setHash(h: string): void {
   try {
     history.replaceState(null, '', h ? `#${h}` : location.pathname + location.search);
@@ -442,7 +447,7 @@ function closeTeam(): void {
   state.team = null;
   setHash('');
   draw();
-  if (last) document.querySelector<HTMLElement>(`tr[data-team="${last}"]`)?.focus();
+  if (last) focusOn(`tr[data-team="${last}"], [data-team-open="${last}"]`);
 }
 
 // ------------------------------------------------------------------ player page
@@ -776,7 +781,7 @@ function playersView(): HTMLElement {
     modes,
     el('div', { className: 'picks' }, [
       selectBox('Team', state.prodTeam, [['all', 'All teams'], ...teamCodes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()])], (v) => { state.prodTeam = v; draw(); }),
-      state.prodTeam !== 'all' ? el('button', { className: 'more', text: `${state.prodTeam} schedule and grades`, onClick: () => openTeam(state.prodTeam) }) : null,
+      state.prodTeam !== 'all' ? el('button', { className: 'more', text: `${state.prodTeam} schedule and grades`, attrs: { 'data-team-open': state.prodTeam }, onClick: () => openTeam(state.prodTeam) }) : null,
     ]),
     el('h2', { className: 'pos-title', text: `${state.prodTeam === 'all' ? '' : `${state.prodTeam} `}${pos.label}s` }),
     el('p', { className: 'fine', text: `${weights}. Minimum ${pos.minimum.perTeamGame} ${minWord} per team game. ${atPosition.length} qualified${state.prodTeam === 'all' ? '' : `, ${list.length} on ${state.prodTeam}; the score and #rank are still league-wide`}.` }),
@@ -947,7 +952,7 @@ function selectBox(label: string, value: string, options: [string, string][], on
     if (v === value) o.selected = true;
     return o;
   }));
-  s.addEventListener('change', () => onChange(s.value));
+  s.addEventListener('change', () => { onChange(s.value); focusOn(`select[aria-label="${label}"]`); });
   return el('label', { className: 'pick-wrap' }, [el('span', { className: 'pick-label', text: label }), s]);
 }
 
@@ -1332,8 +1337,8 @@ function matchupPlayersView(): HTMLElement {
 function matchupsView(): HTMLElement {
   const ms = data.thisWeek?.matchups ?? [];
   const toggle = data.thisWeek?.matchupPlayers ? el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Matchups view' } }, [
-    chip('Games', state.mView === 'games', () => { state.mView = 'games'; draw(); }, 'm-games'),
-    chip('Players', state.mView === 'players', () => { state.mView = 'players'; draw(); }, 'm-players'),
+    chip('Games', state.mView === 'games', () => { state.mView = 'games'; draw(); focusOn('[data-sub="m-games"]'); }, 'm-games'),
+    chip('Players', state.mView === 'players', () => { state.mView = 'players'; draw(); focusOn('[data-sub="m-players"]'); }, 'm-players'),
   ]) : null;
   if (toggle && state.mView === 'players' && ms.length) return el('div', { className: 'rankings' }, [
     el('h2', { className: 'pos-title', text: `Week ${data.thisWeek?.week ?? ''} matchups: players` }),
@@ -1361,7 +1366,7 @@ function matchupsView(): HTMLElement {
         ]),
         open ? el('div', { className: 'player-body' }, [
           ...m.sides.map((sd) => matchupSide(sd)),
-          toggle ? el('button', { className: 'more', text: 'Players in this game', onClick: () => { state.mView = 'players'; state.mGame = m.id; draw(); } }) : null,
+          toggle ? el('button', { className: 'more', text: 'Players in this game', onClick: () => { state.mView = 'players'; state.mGame = m.id; draw(); focusOn('[data-sub="m-players"]'); } }) : null,
         ]) : null,
       ]);
     })),
