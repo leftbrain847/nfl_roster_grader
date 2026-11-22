@@ -357,6 +357,16 @@ export interface GameLogRow {
   v: number[];
 }
 
+/** A player's latest injury report line and reserve status, for his page. */
+export interface PlayerStatus {
+  /** Latest week in the injury file: if report.wk is older, he isn't on the newest report. */
+  reportWeek: number;
+  /** His most recent line on any report this season (short labels, as on the Practice view), or null. */
+  report: { wk: number; practice: string | null; game: string | null; injury: string } | null;
+  /** A reserve list from his latest weekly roster row (INJURY.rosterStatus), or null. */
+  reserve: string | null;
+}
+
 /** One player's page: game log and contract. Every skill player and defender with a stat this season has one. */
 export interface PlayerProfile {
   id: string;
@@ -366,6 +376,8 @@ export interface PlayerProfile {
   kind: LogKind;
   log: GameLogRow[];
   contract: ContractDetail | null;
+  /** Injury report and reserve status; absent when he has neither (or in a data file from before it). */
+  status?: PlayerStatus;
 }
 
 /** A fantasy-relevant player and what his points cost. */

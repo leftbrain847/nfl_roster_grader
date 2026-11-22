@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseCsv } from '../pipeline/csv.ts';
 import { extractInjuries } from '../pipeline/extract.ts';
-import { practiceReport } from '../src/model/practice.ts';
+import { playerStatuses, practiceReport } from '../src/model/practice.ts';
+import type { RosterPlayer } from '../src/model/types.ts';
 
 const HEAD = 'season,season_type,game_type,team,week,gsis_id,position,full_name,first_name,last_name,report_primary_injury,report_secondary_injury,report_status,practice_primary_injury,practice_secondary_injury,practice_status';
 const row = (team: string, week: number, id: string, name: string, report: string, practice: string, injury = 'Knee', season = 2026, type = 'REG'): string =>
@@ -35,5 +36,21 @@ describe('practice report', () => {
     const inj = extractInjuries(parseCsv([HEAD, row('AAA', 4, 'e', 'Ed', 'Out', 'Did Not Participate In Practice')].join('\n')), 2026);
     const r = practiceReport(inj.data, 5);
     expect(r).toMatchObject({ week: 5, published: false, latestWeek: 4, teams: {} });
+  });
+
+  it('player page status: his most recent report line, the newest week in the file, and a reserve list', () => {
+    const csv = [HEAD,
+      row('AAA', 3, 'a', 'Al', 'Out', 'Did Not Participate In Practice', 'Ankle'),
+      row('AAA', 5, 'a', 'Al', 'Questionable', 'Limited Participation in Practice', 'Ankle'),
+      row('AAA', 4, 'b', 'Bo', '', 'Full Participation in Practice', 'Hand'),
+      row('BBB', 6, 'c', 'Cy', '', 'Did Not Participate In Practice'),
+    ].join('\n');
+    const roster = (gsis: string, status: string): RosterPlayer => ({ gsis, pfr: null, name: gsis, team: 'AAA', depth: 'WR', week: 6, status });
+    const s = playerStatuses(extractInjuries(parseCsv(csv), 2026).data, [roster('a', 'ACT'), roster('b', 'RES'), roster('z', 'RES')]);
+    expect(s.get('a')).toEqual({ reportWeek: 6, report: { wk: 5, practice: 'Limited', game: 'Questionable', injury: 'Ankle' }, reserve: null });
+    expect(s.get('b')).toEqual({ reportWeek: 6, report: { wk: 4, practice: 'Full', game: null, injury: 'Hand' }, reserve: 'Reserve/IR' });
+    expect(s.get('c')?.report?.wk).toBe(6);
+    expect(s.get('z')).toEqual({ reportWeek: 6, report: null, reserve: 'Reserve/IR' });
+    expect(s.has('nobody')).toBe(false);
   });
 });

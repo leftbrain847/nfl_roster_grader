@@ -13,7 +13,7 @@ import { buildComparison, comparable } from '../model/compare.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
-import type { MatchupSide, UnitClash, PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { PlayerStatus, MatchupSide, UnitClash, PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -453,6 +453,32 @@ function contractBox(c: ContractDetail | null): HTMLElement {
   ]);
 }
 
+/** His latest practice status and game designation (and a reserve list), at the top of his page. */
+function statusBox(st: PlayerStatus | undefined): HTMLElement {
+  const r = st?.report ?? null;
+  const current = !!r && r.wk === st?.reportWeek;
+  const tags = [
+    st?.reserve ? el('span', { className: 'd-tag d-inj', text: st.reserve }) : null,
+    current && r.practice ? el('span', { className: `d-tag ${tagClass(r.practice)}`, text: `${r.practice} practice` }) : null,
+    current && r.game ? el('span', { className: `d-tag ${tagClass(r.game)}`, text: r.game }) : null,
+  ].filter((x): x is HTMLElement => !!x);
+  const lineOf = (x: NonNullable<PlayerStatus['report']>): string => [x.practice ? `${x.practice} practice` : null, x.game, x.injury || null].filter(Boolean).join(' · ');
+  const fileWeek = st?.reportWeek ?? data.thisWeek?.practice?.latestWeek ?? 0;
+  const text = !fileWeek
+    ? 'No injury reports on file yet.'
+    : !r
+      ? `Not on any injury report this season (the file has through week ${fileWeek}).`
+      : current
+        ? `Week ${r.wk} report: ${lineOf(r) || 'listed, no detail'}.`
+        : `Not on the week ${fileWeek} injury report (last listed week ${r.wk}: ${lineOf(r) || 'no detail'}).`;
+  return el('section', { className: 'shop' }, [
+    el('h3', { text: 'Practice status' }),
+    tags.length ? el('p', { className: 'pr-tags' }, tags) : null,
+    el('p', { className: 'p-contract', text }),
+    el('p', { className: 'fine', text: `${INJURY.practiceNote} From the NFL's injury reports via nflverse.` }),
+  ]);
+}
+
 function playerSheet(p: PlayerProfile): HTMLElement {
   const ranked = players.get(p.id);
   return el('div', { className: 'sheet-backdrop', onClick: (e) => { if (e.target === e.currentTarget) closePlayer(); } }, [
@@ -465,6 +491,7 @@ function playerSheet(p: PlayerProfile): HTMLElement {
         el('button', { className: 'close', text: 'Close', onClick: closePlayer }),
       ]),
       compareButton(p.id),
+      statusBox(p.status),
       ranked ? el('section', { className: 'shop' }, [
         el('h3', { text: `#${ranked.rank} of ${ranked.qualifiedAtPosition} ${POSITIONS[ranked.group].label}s` }),
         statLine(ranked),
