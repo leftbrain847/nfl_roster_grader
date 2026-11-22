@@ -365,7 +365,7 @@ function scheduleSection(sc: TeamSchedule | undefined): HTMLElement | null {
           el('td', { className: 'left', attrs: { colspan: '2' }, text: `${played} played` }),
           el('td', { className: 'num', text: epaText(sc.season.offEpa) }),
           el('td', { className: 'num', text: epaText(sc.season.defEpa) }),
-          ...statCells(sc.season.v, 1),
+          ...statCells(sc.season.v, TEAM_SCHEDULE.avgExtraDecimals),
         ])]) : null,
       ]),
     ]),
@@ -504,28 +504,29 @@ function contractBox(c: ContractDetail | null): HTMLElement {
 }
 
 /** His latest practice status and game designation (and a reserve list), at the top of his page. */
-function statusBox(st: PlayerStatus | undefined): HTMLElement {
-  const r = st?.report ?? null;
-  const current = !!r && r.wk === st?.reportWeek;
+function statusBox(st: PlayerStatus | undefined, team: string): HTMLElement | null {
+  // a data file from before player statuses: say nothing rather than "not listed"
+  if (!st) return null;
+  const r = st.report;
+  const current = !!r && r.wk === st.reportWeek;
   const tags = [
-    st?.reserve ? el('span', { className: 'd-tag d-inj', text: st.reserve }) : null,
+    st.reserve ? el('span', { className: 'd-tag d-inj', text: st.reserve }) : null,
     current && r.practice ? el('span', { className: `d-tag ${tagClass(r.practice)}`, text: `${r.practice} practice` }) : null,
     current && r.game ? el('span', { className: `d-tag ${tagClass(r.game)}`, text: r.game }) : null,
   ].filter((x): x is HTMLElement => !!x);
   const lineOf = (x: NonNullable<PlayerStatus['report']>): string => [x.practice ? `${x.practice} practice` : null, x.game, x.injury || null].filter(Boolean).join(' · ');
-  const fileWeek = st?.reportWeek ?? data.thisWeek?.practice?.latestWeek ?? 0;
-  const text = !fileWeek
-    ? 'No injury reports on file yet.'
+  const text = !st.reportWeek
+    ? `No ${team} injury report on file yet.`
     : !r
-      ? `Not on any injury report this season (the file has through week ${fileWeek}).`
+      ? `Not on any injury report this season (${team}'s newest is week ${st.reportWeek}).`
       : current
         ? `Week ${r.wk} report: ${lineOf(r) || 'listed, no detail'}.`
-        : `Not on the week ${fileWeek} injury report (last listed week ${r.wk}: ${lineOf(r) || 'no detail'}).`;
+        : `Not on ${team}'s week ${st.reportWeek} injury report (last listed week ${r.wk}: ${lineOf(r) || 'no detail'}).`;
   return el('section', { className: 'shop' }, [
     el('h3', { text: 'Practice status' }),
-    tags.length ? el('p', { className: 'pr-tags' }, tags) : null,
+    tags.length ? el('p', { className: 'st-tags' }, tags) : null,
     el('p', { className: 'p-contract', text }),
-    el('p', { className: 'fine', text: `${INJURY.practiceNote} From the NFL's injury reports via nflverse.` }),
+    el('p', { className: 'fine', text: `${INJURY.practiceNote} Week = the newest report his team has filed (teams file on different days, none on a bye). From the NFL's injury reports via nflverse.` }),
   ]);
 }
 
@@ -541,7 +542,7 @@ function playerSheet(p: PlayerProfile): HTMLElement {
         el('button', { className: 'close', text: 'Close', onClick: closePlayer }),
       ]),
       compareButton(p.id),
-      statusBox(p.status),
+      statusBox(p.status, p.team),
       ranked ? el('section', { className: 'shop' }, [
         el('h3', { text: `#${ranked.rank} of ${ranked.qualifiedAtPosition} ${POSITIONS[ranked.group].label}s` }),
         statLine(ranked),
@@ -1246,7 +1247,7 @@ function practiceView(): HTMLElement {
 }
 
 /** Green when the offense has an edge, red when the defense does, plain when even (MATCHUP.edgeWords[1] and [2]). */
-const edgeClass = (edge: number): string => (edge >= (MATCHUP.edgeWords[1]?.[0] ?? 0) ? 'd-up' : edge < (MATCHUP.edgeWords[2]?.[0] ?? 0) ? 'd-inj' : 'd-even');
+const edgeClass = (edge: number, words: [number, string][] = MATCHUP.edgeWords): string => (edge >= (words[1]?.[0] ?? 0) ? 'd-up' : edge < (words[2]?.[0] ?? 0) ? 'd-inj' : 'd-even');
 
 function clashRow(label: string, c: UnitClash): HTMLElement {
   return el('div', { className: 'm-clash' }, [
@@ -1288,7 +1289,7 @@ function matchupPlayerRow(p: MatchupPlayer, i: number): HTMLElement {
       el('span', { className: 'p-name', text: p.name }),
       el('span', { className: 'p-meta', text: `${p.team} ${p.group} · #${p.rank} of ${p.qualified} · vs ${p.opp} ${p.vs ? `${p.vs.label} ${ordinal(p.vs.rank)}` : '(no grade)'}` }),
       el('span', { className: 'mp-tags' }, [
-        p.word !== null && p.edge !== null ? el('span', { className: `d-tag ${edgeClass(p.edge)}`, text: `${p.word} ${p.edge >= 0 ? '+' : ''}${p.edge}` }) : null,
+        p.word !== null && p.edge !== null ? el('span', { className: `d-tag ${edgeClass(p.edge, MATCHUP.playerEdgeWords)}`, text: `${p.word} ${p.edge >= 0 ? '+' : ''}${p.edge}` }) : null,
         p.status ? el('span', { className: `d-tag ${tagClass(p.status)}`, text: p.status }) : null,
       ]),
     ]),

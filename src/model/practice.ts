@@ -28,35 +28,34 @@ export function practiceReport(injuries: InjuryRow[], week: number, cfg: InjuryC
 }
 
 /**
- * Each listed player's most recent injury report line (any week this season) and the latest week in the file, plus a
- * reserve roster status (e.g. IR) from his latest weekly roster row. Players on neither are left out.
+ * A status for every player: his most recent injury report line (any week this season), the newest week his team has
+ * filed a report (teams file on different days, and not on a bye), and a reserve roster status (e.g. IR) from his
+ * latest weekly roster row. Every player gets one, so a page without it means a data file from before it.
  */
-export function playerStatuses(injuries: InjuryRow[], roster: RosterPlayer[], cfg: InjuryConfig = INJURY): Map<string, PlayerStatus> {
-  const reportWeek = injuries.reduce((m, i) => Math.max(m, i.wk), 0);
+export function playerStatuses(injuries: InjuryRow[], roster: RosterPlayer[], cfg: InjuryConfig = INJURY): (id: string, team: string) => PlayerStatus {
+  const teamWeek = new Map<string, number>();
   const latest = new Map<string, InjuryRow>();
   for (const i of injuries) {
+    teamWeek.set(i.t, Math.max(teamWeek.get(i.t) ?? 0, i.wk));
     const prev = latest.get(i.p);
     if (!prev || i.wk > prev.wk) latest.set(i.p, i);
   }
-  const out = new Map<string, PlayerStatus>();
-  for (const [id, i] of latest) {
-    out.set(id, {
-      reportWeek,
-      report: {
+  const reserve = new Map<string, string>();
+  for (const r of roster) {
+    const label = cfg.rosterStatus[r.status];
+    if (label) reserve.set(r.gsis, label);
+  }
+  return (id, team) => {
+    const i = latest.get(id);
+    return {
+      reportWeek: teamWeek.get(team) ?? 0,
+      report: i ? {
         wk: i.wk,
         practice: i.practice ? cfg.practice[i.practice] ?? i.practice : null,
         game: i.report ? cfg.gameStatus[i.report] ?? i.report : null,
         injury: i.injury,
-      },
-      reserve: null,
-    });
-  }
-  for (const r of roster) {
-    const label = cfg.rosterStatus[r.status];
-    if (!label) continue;
-    const s = out.get(r.gsis);
-    if (s) s.reserve = label;
-    else out.set(r.gsis, { reportWeek, report: null, reserve: label });
-  }
-  return out;
+      } : null,
+      reserve: reserve.get(id) ?? null,
+    };
+  };
 }

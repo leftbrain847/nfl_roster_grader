@@ -119,10 +119,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
 
   const profiles = buildProfiles(inp, throughWeek);
   const statuses = playerStatuses(inp.injuries ?? [], inp.roster);
-  for (const p of profiles) {
-    const s = statuses.get(p.id);
-    if (s) p.status = s;
-  }
+  for (const p of profiles) p.status = statuses(p.id, p.team);
   const value = buildValue(inp, profiles, players, teams, played);
   const moves = gradeMoves(buildMoves(inp), {
     season: inp.season, games: inp.games, teamGames: inp.teamGames, teams, seasonNow: season,

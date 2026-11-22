@@ -38,19 +38,21 @@ describe('practice report', () => {
     expect(r).toMatchObject({ week: 5, published: false, latestWeek: 4, teams: {} });
   });
 
-  it('player page status: his most recent report line, the newest week in the file, and a reserve list', () => {
+  it('player page status: his most recent report line, the newest week his team filed, and a reserve list', () => {
     const csv = [HEAD,
       row('AAA', 3, 'a', 'Al', 'Out', 'Did Not Participate In Practice', 'Ankle'),
       row('AAA', 5, 'a', 'Al', 'Questionable', 'Limited Participation in Practice', 'Ankle'),
       row('AAA', 4, 'b', 'Bo', '', 'Full Participation in Practice', 'Hand'),
-      row('BBB', 6, 'c', 'Cy', '', 'Did Not Participate In Practice'),
+      row('BBB', 6, 'c', 'Cy', '', 'Did Not Participate In Practice'), // BBB has filed week 6, AAA not yet
     ].join('\n');
     const roster = (gsis: string, status: string): RosterPlayer => ({ gsis, pfr: null, name: gsis, team: 'AAA', depth: 'WR', week: 6, status });
     const s = playerStatuses(extractInjuries(parseCsv(csv), 2026).data, [roster('a', 'ACT'), roster('b', 'RES'), roster('z', 'RES')]);
-    expect(s.get('a')).toEqual({ reportWeek: 6, report: { wk: 5, practice: 'Limited', game: 'Questionable', injury: 'Ankle' }, reserve: null });
-    expect(s.get('b')).toEqual({ reportWeek: 6, report: { wk: 4, practice: 'Full', game: null, injury: 'Hand' }, reserve: 'Reserve/IR' });
-    expect(s.get('c')?.report?.wk).toBe(6);
-    expect(s.get('z')).toEqual({ reportWeek: 6, report: null, reserve: 'Reserve/IR' });
-    expect(s.has('nobody')).toBe(false);
+    // judged against his own team's newest report (week 5), not the league's (week 6)
+    expect(s('a', 'AAA')).toEqual({ reportWeek: 5, report: { wk: 5, practice: 'Limited', game: 'Questionable', injury: 'Ankle' }, reserve: null });
+    expect(s('b', 'AAA')).toEqual({ reportWeek: 5, report: { wk: 4, practice: 'Full', game: null, injury: 'Hand' }, reserve: 'Reserve/IR' });
+    expect(s('c', 'BBB').reportWeek).toBe(6);
+    expect(s('z', 'AAA')).toEqual({ reportWeek: 5, report: null, reserve: 'Reserve/IR' });
+    // everyone gets a status, listed or not; a team with no report yet has week 0
+    expect(s('nobody', 'CCC')).toEqual({ reportWeek: 0, report: null, reserve: null });
   });
 });

@@ -359,7 +359,7 @@ export interface GameLogRow {
 
 /** A player's latest injury report line and reserve status, for his page. */
 export interface PlayerStatus {
-  /** Latest week in the injury file: if report.wk is older, he isn't on the newest report. */
+  /** Newest week his team has filed an injury report (0 = none yet): if report.wk is older, he isn't on it. */
   reportWeek: number;
   /** His most recent line on any report this season (short labels, as on the Practice view), or null. */
   report: { wk: number; practice: string | null; game: string | null; injury: string } | null;
@@ -376,7 +376,7 @@ export interface PlayerProfile {
   kind: LogKind;
   log: GameLogRow[];
   contract: ContractDetail | null;
-  /** Injury report and reserve status; absent when he has neither (or in a data file from before it). */
+  /** Injury report and reserve status; absent only in a data file from before it. */
   status?: PlayerStatus;
 }
 

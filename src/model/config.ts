@@ -929,11 +929,14 @@ export interface ScheduleStat {
 export interface TeamScheduleConfig {
   /** EPA per play (offense, and allowed by the defense) from the same garbage-time-filtered plays as the unit grades. */
   epaDecimals: number;
+  /** Season averages per game show this many more decimals than the column. */
+  avgExtraDecimals: number;
   stats: ScheduleStat[];
 }
 
 export const TEAM_SCHEDULE: TeamScheduleConfig = {
   epaDecimals: 2,
+  avgExtraDecimals: 1,
   stats: [
     { label: 'PaYd', title: 'Passing yards', rows: 'team', from: [['QB', 'Passing yards']], decimals: 0 },
     { label: 'RuYd', title: 'Rushing yards', rows: 'team', from: [['QB', 'Rushing yards'], ['SKILL', 'Rushing yards']], decimals: 0 },

@@ -314,3 +314,5 @@ button.d-link .d-name { color: var(--accent); }
 .mp-scores { display: flex; gap: 6px; flex: none; }
 .mp-score { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 4.2em; }
 .mp-cap { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.15; }
+/* player page status tags: one row, left-aligned */
+.st-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }

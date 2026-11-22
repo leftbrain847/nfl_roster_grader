@@ -70,7 +70,7 @@ export function teamSchedules(games: Game[], teamGames: TeamGame[], playerWeeks:
       season: {
         offEpa: e(offAll),
         defEpa: e(defAll),
-        v: cfg.stats.map((st, c) => (withStats.length ? round(withStats.reduce((s, x) => s + (x.v?.[c] ?? 0), 0) / withStats.length, st.decimals + 1) : null)),
+        v: cfg.stats.map((st, c) => (withStats.length ? round(withStats.reduce((s, x) => s + (x.v?.[c] ?? 0), 0) / withStats.length, st.decimals + cfg.avgExtraDecimals) : null)),
       },
     };
   });
