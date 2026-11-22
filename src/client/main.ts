@@ -13,7 +13,7 @@ import { buildComparison, comparable } from '../model/compare.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
-import type { TeamSchedule, PlayerStatus, MatchupSide, UnitClash, PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { MatchupPlayer, TeamSchedule, PlayerStatus, MatchupSide, UnitClash, PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -55,6 +55,11 @@ const state = {
   faWindow: 'season' as 'season' | 'recent',
   faAdjusted: true,
   weekView: 'matchups' as 'matchups' | 'fantasy' | 'redzone' | 'personnel' | 'practice',
+  /** Matchups: game cards, or players against the unit they face (filtered by position and game, sorted). */
+  mView: 'games' as 'games' | 'players',
+  mGroup: 'QB' as PositionGroup,
+  mGame: 'all',
+  mSort: 'score' as 'score' | 'edge',
   prTeam: 'all',
   pTeam: '',
   rzTeam: '',
@@ -1276,8 +1281,64 @@ function matchupSide(sd: MatchupSide): HTMLElement {
   ]);
 }
 
+function matchupPlayerRow(p: MatchupPlayer, i: number): HTMLElement {
+  const inner = [
+    el('span', { className: 'p-rank num', text: String(i + 1) }),
+    el('span', { className: 'p-main' }, [
+      el('span', { className: 'p-name', text: p.name }),
+      el('span', { className: 'p-meta', text: `${p.team} ${p.group} · #${p.rank} of ${p.qualified} · vs ${p.opp} ${p.vs ? `${p.vs.label} ${ordinal(p.vs.rank)}` : '(no grade)'}` }),
+      el('span', { className: 'mp-tags' }, [
+        p.word !== null && p.edge !== null ? el('span', { className: `d-tag ${edgeClass(p.edge)}`, text: `${p.word} ${p.edge >= 0 ? '+' : ''}${p.edge}` }) : null,
+        p.status ? el('span', { className: `d-tag ${tagClass(p.status)}`, text: p.status }) : null,
+      ]),
+    ]),
+    el('span', { className: 'mp-scores' }, [
+      el('span', { className: 'mp-score' }, [el('span', { className: `p-score num ${band(p.score)}`, text: String(Math.round(p.score)) }), el('span', { className: 'mp-cap', text: p.group })]),
+      el('span', { className: 'mp-score' }, [
+        el('span', { className: `p-score num ${p.vs ? band(p.vs.grade) : ''}`, text: p.vs ? String(p.vs.grade) : '-' }),
+        el('span', { className: 'mp-cap', text: p.vs ? `${p.opp} ${p.vs.label}` : p.opp }),
+      ]),
+    ]),
+  ];
+  return el('li', { className: 'player' }, [
+    profiles.has(p.id)
+      ? el('button', { className: 'player-head', attrs: { 'data-mp': p.id }, onClick: () => openPlayer(p.id, `[data-mp="${p.id}"]`) }, inner)
+      : el('div', { className: 'player-head' }, inner),
+  ]);
+}
+
+function matchupPlayersView(): HTMLElement {
+  const ms = data.thisWeek?.matchups ?? [];
+  const all = data.thisWeek?.matchupPlayers ?? [];
+  if (state.mGame !== 'all' && !ms.some((m) => m.id === state.mGame)) state.mGame = 'all';
+  const list = all.filter((p) => p.group === state.mGroup && (state.mGame === 'all' || p.game === state.mGame));
+  if (state.mSort === 'edge') list.sort((a, b) => (b.edge ?? -Infinity) - (a.edge ?? -Infinity) || b.score - a.score);
+  const vs = MATCHUP.versus[state.mGroup];
+  const against = 'unit' in vs ? `the opponent's ${UNITS[vs.unit].long.toLowerCase()} grade` : `the opponent's ${LINE[vs.line].label.toLowerCase()} grade (${LINE[vs.line].stat})`;
+  return el('div', {}, [
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, POSITION_GROUPS.map((g) => chip(g, state.mGroup === g, () => { state.mGroup = g; draw(); }))),
+    el('div', { className: 'picks' }, [
+      selectBox('Game', state.mGame, [['all', 'All games'], ...ms.map((m): [string, string] => [m.id, `${m.away} @ ${m.home}`])], (v) => { state.mGame = v; draw(); }),
+      selectBox('Sort', state.mSort, [['score', 'Player score'], ['edge', 'Matchup edge']], (v) => { state.mSort = v as 'score' | 'edge'; draw(); }),
+    ]),
+    el('p', { className: 'fine', text: `${POSITIONS[state.mGroup].label}s: production score (0-100, as on the Production tab) against ${against}, 0-100 with 50 = average, rank 1st = best. Edge = his score minus that grade (${MATCHUP.playerEdgeWords.map(([n, w]) => `${w} ${n >= 0 ? '+' : ''}${n} or more`).join(', ')}, else ${MATCHUP.playerFallbackWord.toLowerCase()}). Tags: this week's game designation. Tap a player.` }),
+    list.length
+      ? el('ol', { className: 'players' }, list.map(matchupPlayerRow))
+      : el('p', { className: 'fine', text: 'No ranked players at this position in this game.' }),
+  ]);
+}
+
 function matchupsView(): HTMLElement {
   const ms = data.thisWeek?.matchups ?? [];
+  const toggle = data.thisWeek?.matchupPlayers ? el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Matchups view' } }, [
+    chip('Games', state.mView === 'games', () => { state.mView = 'games'; draw(); }, 'm-games'),
+    chip('Players', state.mView === 'players', () => { state.mView = 'players'; draw(); }, 'm-players'),
+  ]) : null;
+  if (toggle && state.mView === 'players' && ms.length) return el('div', { className: 'rankings' }, [
+    el('h2', { className: 'pos-title', text: `Week ${data.thisWeek?.week ?? ''} matchups: players` }),
+    toggle,
+    matchupPlayersView(),
+  ]);
   const head = [
     el('h2', { className: 'pos-title', text: `Week ${data.thisWeek?.week ?? ''} matchups` }),
     el('p', { className: 'fine', text: `Each offense against the other defense: unit grades (0-100 from opponent-adjusted EPA/play, rank in brackets) and the gap between them; what the defense allows per game by position (adjusted, rank 1 = allows the most); the offense's top red zone players (share of the team's targets + carries ${RED_ZONE.zones.map((z) => `inside the ${z.maxYardline}`).join(' / ')}, season); personnel share of snaps; and players listed Out, Doubtful or Questionable. Tap a game.` }),
@@ -1285,6 +1346,7 @@ function matchupsView(): HTMLElement {
   if (!ms.length) return el('div', { className: 'rankings' }, [...head, el('p', { className: 'fine', text: 'No games this week.' })]);
   return el('div', { className: 'rankings' }, [
     ...head,
+    toggle,
     el('ul', { className: 'players' }, ms.map((m) => {
       const open = state.open.has(`m-${m.id}`);
       const result = m.homeScore !== null && m.awayScore !== null ? `Final ${m.away} ${m.awayScore}, ${m.home} ${m.homeScore}` : fmtDate(m.gameday);
@@ -1296,7 +1358,10 @@ function matchupsView(): HTMLElement {
             el('span', { className: 'p-meta', text: `${result} · ${edges}` }),
           ]),
         ]),
-        open ? el('div', { className: 'player-body' }, m.sides.map((sd) => matchupSide(sd))) : null,
+        open ? el('div', { className: 'player-body' }, [
+          ...m.sides.map((sd) => matchupSide(sd)),
+          toggle ? el('button', { className: 'more', text: 'Players in this game', onClick: () => { state.mView = 'players'; state.mGame = m.id; draw(); } }) : null,
+        ]) : null,
       ]);
     })),
   ]);
@@ -1340,7 +1405,7 @@ function footer(): HTMLElement {
     el('p', { text: `Red zone usage (This week): targets and carries from play-by-play with the ball snapped ${RED_ZONE.zones.map((z) => `at or inside the ${z.maxYardline}`).join(' or ')}, by player and week, with each player's share of his team's. A sack or an aborted play is not a target; kneels, spikes and two-point tries are left out.` }),
     el('p', { text: `Depth charts (team sheets): ESPN's depth charts as nflverse snapshots them (about twice a day). The newest snapshot is compared with the newest one from at least ${DEPTH.minDaysBefore} ${DEPTH.minDaysBefore === 1 ? 'day' : 'days'} earlier: New = not on that slot before, Up / Down = moved on it, Off the chart = was on it. Designations are this week's injury report (nflverse injuries) or a reserve list on the weekly roster.` }),
     el('p', { text: `Personnel (This week), ${PERSONNEL.label.toLowerCase()}: average backs (fullbacks included), tight ends and receivers on the field per offensive snap = that position's offense snaps over the team's (PFR snap counts). If a team only used 1 or 2 tight ends, its 2-TE share would be the TE average minus 1; real teams spread wider, so that share is scaled down by factors fitted on ${PERSONNEL.fittedOn}: heavy (2+ TE or 2+ RB) = ${PERSONNEL.heavyScale} × ((TE − 1) + (RB − 1)), 12 = ${PERSONNEL.twoTeScale} × (TE − 1), 11 = 1 − heavy − (WR − 3), each part clamped to 0-1. Against FTN's exact ${PERSONNEL.fittedOn} participation (fitted leaving each team out): over a season, mean error about 4 points for 11, 5-6 for 12 and 4 for heavy, rank correlation 0.85 / 0.71 / 0.90; for one game about 6 / 8 / 5 points. Exact current numbers: ${PERSONNEL.exactLink.url}. When FTN participation for a season is on nflverse, the exact shares and EPA per play by grouping are shown for it (${PERSONNEL.ftnCredit}; tables derived from it are shared under the same license).` }),
-    el('p', { text: `Matchups (This week): for each game this week, each offense's pass and rush grades against the other team's pass and rush defense grades (EPA-based, as on the board), the gap between them (${MATCHUP.edgeWords.map(([n, w]) => `${w} ${n >= 0 ? '+' : ''}${n} or more`).join(', ')}, else ${MATCHUP.fallbackWord.toLowerCase()}), and the other This week views for the two teams.` }),
+    el('p', { text: `Matchups (This week): for each game this week, each offense's pass and rush grades against the other team's pass and rush defense grades (EPA-based, as on the board), the gap between them (${MATCHUP.edgeWords.map(([n, w]) => `${w} ${n >= 0 ? '+' : ''}${n} or more`).join(', ')}, else ${MATCHUP.fallbackWord.toLowerCase()}), and the other This week views for the two teams. Players view: every ranked player in a game this week, his production score against the grade of the opposing unit his position faces (${POSITION_GROUPS.map((g) => `${g} vs ${MATCHUP.versus[g].label}`).join(', ')}); pass pro is the line's team grade from pressure rate allowed, not a per-lineman stat.` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, trades and draft picks, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),

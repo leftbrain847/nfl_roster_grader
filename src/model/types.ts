@@ -705,6 +705,27 @@ export interface Matchup {
   sides: [MatchupSide, MatchupSide];
 }
 
+/** A ranked player playing this week, his production score against the opposing unit he faces (MATCHUP.versus). */
+export interface MatchupPlayer {
+  id: string;
+  name: string;
+  team: string;
+  opp: string;
+  /** The game's id (Matchup.id). */
+  game: string;
+  group: PositionGroup;
+  score: number;
+  rank: number;
+  qualified: number;
+  /** The opposing unit or line grade; null when the opponent has no such grade (e.g. PFR data missing). */
+  vs: { label: string; grade: number; rank: number } | null;
+  /** score - vs.grade, and its word. */
+  edge: number | null;
+  word: string | null;
+  /** This week's game designation (Out, Doubtful, Questionable), or null. */
+  status: string | null;
+}
+
 /** The This week tab. Optional in the output so a data file from before it still loads. */
 export interface ThisWeek {
   /** The first week with a game not yet played (or the last week, after the season). */
@@ -714,6 +735,8 @@ export interface ThisWeek {
   personnel?: Personnel;
   practice?: PracticeReport;
   matchups?: Matchup[];
+  /** Players view of the matchups: every ranked player in a game this week. */
+  matchupPlayers?: MatchupPlayer[];
 }
 
 /** One game on a team's schedule. Stats are null for a game not played yet (or not in the weekly stats yet). */

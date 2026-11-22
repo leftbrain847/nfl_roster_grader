@@ -21,7 +21,7 @@ import { redZoneUsage } from './redZone.ts';
 import { depthCharts } from './depth.ts';
 import { buildPersonnel } from './personnel.ts';
 import { playerStatuses, practiceReport } from './practice.ts';
-import { buildMatchups } from './matchups.ts';
+import { buildMatchups, matchupPlayers } from './matchups.ts';
 import { teamSchedules } from './schedule.ts';
 import type { ModelInputs, ModelOutput, SourceStatus, TeamResult } from './types.ts';
 
@@ -135,7 +135,8 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     personnel: buildPersonnel(inp, opts.personnelCfg ?? PERSONNEL_SOURCE),
     practice: practiceReport(inp.injuries ?? [], week),
   };
-  const thisWeek = { week, ...parts, matchups: buildMatchups(inp.games, week, { ...parts, teams: results }) };
+  const matchups = buildMatchups(inp.games, week, { ...parts, teams: results });
+  const thisWeek = { week, ...parts, matchups, matchupPlayers: matchupPlayers(matchups, players, results, parts.practice) };
   const modes: RankingMode[] = ratingsCfg.enabled && inp.ratings ? ['production', 'ratings', 'composite'] : ['production'];
   return {
     schemaVersion: 1,

@@ -3,7 +3,7 @@
  * week parts, so it adds no data of its own. */
 import { FANTASY_ALLOWED, MATCHUP, type MatchupConfig } from './config.ts';
 import { opportunities, share } from './redZone.ts';
-import type { FantasyAllowed, Game, Matchup, MatchupSide, Personnel, PracticeReport, RedZoneUsage, TeamResult, UnitClash, UnitResult } from './types.ts';
+import type { FantasyAllowed, Game, Matchup, MatchupPlayer, MatchupSide, PlayerResult, Personnel, PracticeReport, RedZoneUsage, TeamResult, UnitClash, UnitResult } from './types.ts';
 
 export function edgeWord(edge: number, cfg: MatchupConfig = MATCHUP): string {
   for (const [min, word] of cfg.edgeWords) if (edge >= min) return word;
@@ -66,3 +66,37 @@ export function buildMatchups(games: Game[], week: number, parts: Parts, cfg: Ma
   return out;
 }
 
+
+export function playerEdgeWord(edge: number, cfg: MatchupConfig = MATCHUP): string {
+  for (const [min, word] of cfg.playerEdgeWords) if (edge >= min) return word;
+  return cfg.playerFallbackWord;
+}
+
+/** Every ranked player whose team plays this week, against the opposing unit his position faces; best score first. */
+export function matchupPlayers(matchups: Matchup[], players: PlayerResult[], teams: TeamResult[], practice: PracticeReport | undefined, cfg: MatchupConfig = MATCHUP): MatchupPlayer[] {
+  const byTeam = new Map(teams.map((t) => [t.team, t]));
+  const games = new Map<string, { id: string; opp: string }>();
+  for (const m of matchups) {
+    games.set(m.away, { id: m.id, opp: m.home });
+    games.set(m.home, { id: m.id, opp: m.away });
+  }
+  const status = new Map<string, string>();
+  for (const rows of Object.values(practice?.teams ?? {})) for (const r of rows) if (r.game) status.set(r.id, r.game);
+  const out: MatchupPlayer[] = [];
+  for (const p of players) {
+    const g = games.get(p.team);
+    const opp = g ? byTeam.get(g.opp) : undefined;
+    if (!g || !opp) continue;
+    const v = cfg.versus[p.group];
+    const r = 'unit' in v ? opp.units[v.unit] : opp.line?.[v.line] ?? null;
+    const edge = r ? Math.round(p.scores.production - r.grade) : null;
+    out.push({
+      id: p.id, name: p.name, team: p.team, opp: g.opp, game: g.id, group: p.group,
+      score: p.scores.production, rank: p.rank, qualified: p.qualifiedAtPosition,
+      vs: r ? { label: v.label, grade: r.grade, rank: r.rank } : null,
+      edge, word: edge === null ? null : playerEdgeWord(edge, cfg),
+      status: status.get(p.id) ?? null,
+    });
+  }
+  return out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}

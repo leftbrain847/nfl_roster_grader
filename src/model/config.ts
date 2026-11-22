@@ -958,6 +958,14 @@ export interface MatchupConfig {
   redZonePlayers: number;
   /** Game designations listed on a matchup card (others, e.g. a full-practice note, are left to the Practice view). */
   statuses: string[];
+  /**
+   * Players view: what each position's player is matched against on the other team, a unit grade (UNITS) or an
+   * offensive-line grade (LINE). Edge = his production score - that grade (both 0-100, 50 = average).
+   */
+  versus: Record<PositionGroup, { unit: UnitKey; label: string } | { line: LineKey; label: string }>;
+  /** Words for a player's edge, best first (positive = favors the player, on either side of the ball). */
+  playerEdgeWords: [number, string][];
+  playerFallbackWord: string;
 }
 
 export const MATCHUP: MatchupConfig = {
@@ -965,6 +973,19 @@ export const MATCHUP: MatchupConfig = {
   fallbackWord: 'Big edge defense',
   redZonePlayers: 3,
   statuses: ['Out', 'Doubtful', 'Questionable'],
+  versus: {
+    QB: { unit: 'passDefense', label: 'pass D' },
+    RB: { unit: 'rushDefense', label: 'run D' },
+    WR: { unit: 'passDefense', label: 'pass D' },
+    TE: { unit: 'passDefense', label: 'pass D' },
+    EDGE: { line: 'passPro', label: 'pass pro' },
+    IDL: { line: 'passPro', label: 'pass pro' },
+    LB: { unit: 'rushOffense', label: 'run O' },
+    CB: { unit: 'passOffense', label: 'pass O' },
+    S: { unit: 'passOffense', label: 'pass O' },
+  },
+  playerEdgeWords: [[20, 'Big edge'], [8, 'Edge'], [-8, 'Even'], [-20, 'Tough']],
+  playerFallbackWord: 'Very tough',
 };
 
 // ---------------------------------------------------------------------------------------------------------------
