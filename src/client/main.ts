@@ -7,13 +7,13 @@ import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, INJURY, MATCHUP, COMPARE, type FantasyPos,
+  PICK_VALUE, TEAM_SCHEDULE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, INJURY, MATCHUP, COMPARE, type FantasyPos,
 } from '../model/config.ts';
 import { buildComparison, comparable } from '../model/compare.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
-import type { PlayerStatus, MatchupSide, UnitClash, PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { TeamSchedule, PlayerStatus, MatchupSide, UnitClash, PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -71,6 +71,7 @@ const teams = new Map(data.teams.map((t) => [t.team, t]));
 const moves = data.moves ?? [];
 const profiles = new Map((data.profiles ?? []).map((p) => [p.id, p]));
 const depth = new Map((data.depthCharts ?? []).map((d) => [d.team, d]));
+const schedules = new Map((data.schedules ?? []).map((x) => [x.team, x]));
 // a data file from before line grades existed still opens its team sheets
 for (const t of data.teams) {
   t.line ??= { passPro: null, runBlock: null };
@@ -324,6 +325,49 @@ function depthSection(d: DepthChartView | undefined): HTMLElement {
   ]);
 }
 
+/** Every game on the team's schedule with its core stats; games not played yet show the date. */
+function scheduleSection(sc: TeamSchedule | undefined): HTMLElement | null {
+  if (!sc?.games.length) return null;
+  const S = TEAM_SCHEDULE.stats;
+  const epaText = (x: number | null): string => (x === null ? '-' : signed(x, TEAM_SCHEDULE.epaDecimals));
+  const head: [string, string][] = [
+    ['Wk', 'Week'], ['Opp', 'Opponent (@ = away)'], ['Result', 'Result, or game day'],
+    ['EPA O', 'Offense EPA per play (garbage time removed)'], ['EPA D', 'EPA per play allowed by the defense (lower is better)'],
+    ...S.map((c): [string, string] => [c.label, c.title]),
+  ];
+  const statCells = (v: (number | null)[] | null, extra = 0): HTMLElement[] => S.map((c, i) => {
+    const x = v?.[i];
+    return el('td', { className: 'num', text: x === null || x === undefined ? '-' : x.toFixed(c.decimals + extra) });
+  });
+  const played = sc.games.filter((g) => g.result).length;
+  return el('section', { className: 'shop' }, [
+    el('h3', { text: 'Schedule' }),
+    el('div', { className: 'table-wrap' }, [
+      el('table', { className: 'log' }, [
+        el('thead', {}, [el('tr', {}, head.map(([h, title], i) => el('th', { text: h, className: i < 2 ? 'left' : '', attrs: { scope: 'col', title } })))]),
+        el('tbody', {}, sc.games.map((g) => el('tr', { className: g.result ? '' : 'upcoming' }, [
+          el('th', { className: 'num left', attrs: { scope: 'row' }, text: String(g.wk) }),
+          el('td', { className: 'left' }, [
+            teams.has(g.opp) ? el('button', { className: 'link', text: `${g.home ? '' : '@'}${g.opp}`, attrs: { 'data-sched': `${sc.team}-${g.wk}` }, onClick: () => openTeam(g.opp) }) : el('span', { text: `${g.home ? '' : '@'}${g.opp}` }),
+          ]),
+          el('td', { className: 'num', text: g.result || fmtDate(g.gameday) }),
+          el('td', { className: 'num', text: epaText(g.offEpa) }),
+          el('td', { className: 'num', text: epaText(g.defEpa) }),
+          ...statCells(g.v),
+        ]))),
+        played ? el('tfoot', {}, [el('tr', {}, [
+          el('th', { className: 'left', attrs: { scope: 'row' }, text: 'Avg' }),
+          el('td', { className: 'left', attrs: { colspan: '2' }, text: `${played} played` }),
+          el('td', { className: 'num', text: epaText(sc.season.offEpa) }),
+          el('td', { className: 'num', text: epaText(sc.season.defEpa) }),
+          ...statCells(sc.season.v, 1),
+        ])]) : null,
+      ]),
+    ]),
+    el('p', { className: 'fine', text: `EPA O / EPA D = expected points added per play on offense, and allowed on defense, with garbage time removed (the plays behind the unit grades; not opponent-adjusted). Avg = per game; EPA over all plays. ${S.map((c) => `${c.label} = ${c.title}`).join(' · ')}. Yards and sacks from the nflverse weekly player stats, summed by team. Tap an opponent for its sheet.` }),
+  ]);
+}
+
 function teamSheet(t: TeamResult): HTMLElement {
   const list = (ids: string[]) => el('ol', { className: 'players' }, ids.map((id) => players.get(id)).filter((p): p is PlayerResult => !!p).map((p) => playerCard(p, { showTeam: true })));
   let shop: HTMLElement;
@@ -367,6 +411,7 @@ function teamSheet(t: TeamResult): HTMLElement {
           el('div', {}, [el('dt', { text: 'Strength' }), el('dd', { className: 'num', text: `${signed(t.strength, 1)} pts/game` })]),
         ]),
       ]),
+      scheduleSection(schedules.get(t.team)),
       el('section', { className: 'units' }, [metricChips(), ...UNIT_KEYS.map((k) => unitBar(t, k))]),
       el('section', { className: 'units' }, [
         el('h3', { text: 'Offensive line' }),
@@ -725,6 +770,7 @@ function playersView(): HTMLElement {
     modes,
     el('div', { className: 'picks' }, [
       selectBox('Team', state.prodTeam, [['all', 'All teams'], ...teamCodes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()])], (v) => { state.prodTeam = v; draw(); }),
+      state.prodTeam !== 'all' ? el('button', { className: 'more', text: `${state.prodTeam} schedule and grades`, onClick: () => openTeam(state.prodTeam) }) : null,
     ]),
     el('h2', { className: 'pos-title', text: `${state.prodTeam === 'all' ? '' : `${state.prodTeam} `}${pos.label}s` }),
     el('p', { className: 'fine', text: `${weights}. Minimum ${pos.minimum.perTeamGame} ${minWord} per team game. ${atPosition.length} qualified${state.prodTeam === 'all' ? '' : `, ${list.length} on ${state.prodTeam}; the score and #rank are still league-wide`}.` }),

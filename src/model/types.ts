@@ -716,6 +716,28 @@ export interface ThisWeek {
   matchups?: Matchup[];
 }
 
+/** One game on a team's schedule. Stats are null for a game not played yet (or not in the weekly stats yet). */
+export interface ScheduleGame {
+  wk: number;
+  opp: string;
+  home: boolean;
+  gameday: string;
+  /** "W 24-17", or empty before the game. */
+  result: string;
+  /** EPA per play on offense, and allowed on defense (garbage time removed, as in the unit grades). */
+  offEpa: number | null;
+  defEpa: number | null;
+  /** One value per TEAM_SCHEDULE.stats column. */
+  v: (number | null)[] | null;
+}
+
+export interface TeamSchedule {
+  team: string;
+  games: ScheduleGame[];
+  /** Season: EPA per play over all plays, and each column's average per game with stats. */
+  season: { offEpa: number | null; defEpa: number | null; v: (number | null)[] };
+}
+
 export interface ModelOutput {
   schemaVersion: 1;
   /** True only for the built-in sample (no real data yet): the page shows a banner. */
@@ -735,4 +757,6 @@ export interface ModelOutput {
   thisWeek?: ThisWeek;
   /** Team depth charts (team sheets). */
   depthCharts?: DepthChartView[];
+  /** Every team's schedule with core stats by game (team sheets). */
+  schedules?: TeamSchedule[];
 }

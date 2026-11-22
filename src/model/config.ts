@@ -913,6 +913,40 @@ export const PERSONNEL_SOURCE: PersonnelSourceConfig = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Team schedule: every game with the team's core stats (team sheets)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** One column: a game-log column (GAME_LOG.columns[kind], found by title) summed over the team's own players or the
+ * opponent's, in that game. Several sources are added together. */
+export interface ScheduleStat {
+  label: string;
+  title: string;
+  rows: 'team' | 'opp';
+  from: [LogKind, string][];
+  decimals: number;
+}
+
+export interface TeamScheduleConfig {
+  /** EPA per play (offense, and allowed by the defense) from the same garbage-time-filtered plays as the unit grades. */
+  epaDecimals: number;
+  stats: ScheduleStat[];
+}
+
+export const TEAM_SCHEDULE: TeamScheduleConfig = {
+  epaDecimals: 2,
+  stats: [
+    { label: 'PaYd', title: 'Passing yards', rows: 'team', from: [['QB', 'Passing yards']], decimals: 0 },
+    { label: 'RuYd', title: 'Rushing yards', rows: 'team', from: [['QB', 'Rushing yards'], ['SKILL', 'Rushing yards']], decimals: 0 },
+    { label: 'SkA', title: 'Sacks allowed', rows: 'team', from: [['QB', 'Sacks taken']], decimals: 0 },
+    { label: 'IntT', title: 'Interceptions thrown', rows: 'team', from: [['QB', 'Interceptions thrown']], decimals: 0 },
+    { label: 'PaYdA', title: 'Passing yards allowed', rows: 'opp', from: [['QB', 'Passing yards']], decimals: 0 },
+    { label: 'RuYdA', title: 'Rushing yards allowed', rows: 'opp', from: [['QB', 'Rushing yards'], ['SKILL', 'Rushing yards']], decimals: 0 },
+    { label: 'Sck', title: 'Sacks by the defense', rows: 'team', from: [['DEF', 'Sacks']], decimals: 1 },
+    { label: 'Int', title: 'Interceptions by the defense', rows: 'team', from: [['DEF', 'Interceptions']], decimals: 0 },
+  ],
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Matchups: each game this week, unit against unit
 // ---------------------------------------------------------------------------------------------------------------
 

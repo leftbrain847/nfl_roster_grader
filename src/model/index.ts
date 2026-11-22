@@ -22,6 +22,7 @@ import { depthCharts } from './depth.ts';
 import { buildPersonnel } from './personnel.ts';
 import { playerStatuses, practiceReport } from './practice.ts';
 import { buildMatchups } from './matchups.ts';
+import { teamSchedules } from './schedule.ts';
 import type { ModelInputs, ModelOutput, SourceStatus, TeamResult } from './types.ts';
 
 export interface BuildOptions {
@@ -152,6 +153,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,
     depthCharts: depthCharts(inp.depthCharts ?? [], players, inp.injuries ?? [], inp.roster, currentWeek(inp.games)),
     thisWeek,
+    schedules: teamSchedules(inp.games, inp.teamGames, inp.playerWeeks, teams),
   };
 }
 
