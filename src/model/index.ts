@@ -20,8 +20,9 @@ import { currentWeek, fantasyAllowed } from './fantasyAllowed.ts';
 import { redZoneUsage } from './redZone.ts';
 import { depthCharts } from './depth.ts';
 import { buildPersonnel } from './personnel.ts';
-import { practiceReport } from './practice.ts';
-import { buildMatchups } from './matchups.ts';
+import { playerStatuses, practiceReport } from './practice.ts';
+import { buildMatchups, matchupPlayers } from './matchups.ts';
+import { teamSchedules } from './schedule.ts';
 import type { ModelInputs, ModelOutput, SourceStatus, TeamResult } from './types.ts';
 
 export interface BuildOptions {
@@ -117,6 +118,8 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
   }
 
   const profiles = buildProfiles(inp, throughWeek);
+  const statuses = playerStatuses(inp.injuries ?? [], inp.roster);
+  for (const p of profiles) p.status = statuses(p.id, p.team);
   const value = buildValue(inp, profiles, players, teams, played);
   const moves = gradeMoves(buildMoves(inp), {
     season: inp.season, games: inp.games, teamGames: inp.teamGames, teams, seasonNow: season,
@@ -129,7 +132,8 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     personnel: buildPersonnel(inp, opts.personnelCfg ?? PERSONNEL_SOURCE),
     practice: practiceReport(inp.injuries ?? [], week),
   };
-  const thisWeek = { week, ...parts, matchups: buildMatchups(inp.games, week, { ...parts, teams: results }) };
+  const matchups = buildMatchups(inp.games, week, { ...parts, teams: results });
+  const thisWeek = { week, ...parts, matchups, matchupPlayers: matchupPlayers(matchups, players, results, parts.practice) };
   const modes: RankingMode[] = ratingsCfg.enabled && inp.ratings ? ['production', 'ratings', 'composite'] : ['production'];
   return {
     schemaVersion: 1,
@@ -147,6 +151,7 @@ export function buildModel(inp: ModelInputs, opts: BuildOptions): ModelOutput {
     ratingsCredit: modes.length > 1 ? `${ratingsCfg.label} (${ratingsCfg.license})` : null,
     depthCharts: depthCharts(inp.depthCharts ?? [], players, inp.injuries ?? [], inp.roster, currentWeek(inp.games)),
     thisWeek,
+    schedules: teamSchedules(inp.games, inp.teamGames, inp.playerWeeks, teams),
   };
 }
 

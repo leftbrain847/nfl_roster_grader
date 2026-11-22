@@ -7,13 +7,13 @@ import data from '@roster-data';
 import {
   ADJUST, GAME_LOG, MOVES, LINE, LINE_KEYS, LINE_TARGETS, PLAYOFF_SIM, TRADE_COST, POSITION_GROUPS, POSITIONS, STATS, UNIT_KEYS, UNITS, VALUE, VERDICT,
   type LineKey, type MoveKind, type PositionGroup, type RankingMode, type UnitKey, type Verdict,
-  PICK_VALUE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, INJURY, MATCHUP, COMPARE, type FantasyPos,
+  PICK_VALUE, TEAM_SCHEDULE, FANTASY_ALLOWED, RED_ZONE, THIS_WEEK, UNIT_METRICS, DEPTH, PERSONNEL, INJURY, MATCHUP, COMPARE, type FantasyPos,
 } from '../model/config.ts';
 import { buildComparison, comparable } from '../model/compare.ts';
 import { ordinal } from '../model/stats.ts';
 import { logTotals } from '../model/profiles.ts';
 import { share } from '../model/redZone.ts';
-import type { MatchupSide, UnitClash, PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
+import type { MatchupPlayer, TeamSchedule, PlayerStatus, MatchupSide, UnitClash, PracticeRow, PersonnelExact, DepthChartView, DepthEntry, UnitResult, ContractDetail, FrontOffice, LineTarget, Lineup, MoveGrade, TradeCard, TradeSide, PlayerContract, PlayerProfile, PlayerResult, PlayerValue, TeamResult } from '../model/types.ts';
 import { el, render } from './ui';
 
 /** Moves listed at first; "Show more" adds this many again. */
@@ -29,6 +29,8 @@ const state = {
   desc: true,
   filter: 'all' as Verdict | 'all',
   group: 'QB' as PositionGroup | 'OL',
+  /** Production tab: one team's players, or every team's. */
+  prodTeam: 'all',
   mode: 'production' as RankingMode,
   team: null as string | null,
   /** The open player page, on top of the team sheet if both are open. */
@@ -53,6 +55,11 @@ const state = {
   faWindow: 'season' as 'season' | 'recent',
   faAdjusted: true,
   weekView: 'matchups' as 'matchups' | 'fantasy' | 'redzone' | 'personnel' | 'practice',
+  /** Matchups: game cards, or players against the unit they face (filtered by position and game, sorted). */
+  mView: 'games' as 'games' | 'players',
+  mGroup: 'QB' as PositionGroup,
+  mGame: 'all',
+  mSort: 'score' as 'score' | 'edge',
   prTeam: 'all',
   pTeam: '',
   rzTeam: '',
@@ -69,6 +76,7 @@ const teams = new Map(data.teams.map((t) => [t.team, t]));
 const moves = data.moves ?? [];
 const profiles = new Map((data.profiles ?? []).map((p) => [p.id, p]));
 const depth = new Map((data.depthCharts ?? []).map((d) => [d.team, d]));
+const schedules = new Map((data.schedules ?? []).map((x) => [x.team, x]));
 // a data file from before line grades existed still opens its team sheets
 for (const t of data.teams) {
   t.line ??= { passPro: null, runBlock: null };
@@ -92,6 +100,11 @@ const score = (p: PlayerResult): number => p.scores[state.mode] ?? p.scores.prod
 
 function verdictPill(v: Verdict): HTMLElement {
   return el('span', { className: `pill v-${v.replace(' ', '-')}`, text: VERDICT.labels[v] });
+}
+
+/** After a redraw: put keyboard focus back on the control that caused it (the page is rebuilt each time). */
+function focusOn(selector: string): void {
+  document.querySelector<HTMLElement>(selector)?.focus();
 }
 
 function setHash(h: string): void {
@@ -322,6 +335,49 @@ function depthSection(d: DepthChartView | undefined): HTMLElement {
   ]);
 }
 
+/** Every game on the team's schedule with its core stats; games not played yet show the date. */
+function scheduleSection(sc: TeamSchedule | undefined): HTMLElement | null {
+  if (!sc?.games.length) return null;
+  const S = TEAM_SCHEDULE.stats;
+  const epaText = (x: number | null): string => (x === null ? '-' : signed(x, TEAM_SCHEDULE.epaDecimals));
+  const head: [string, string][] = [
+    ['Wk', 'Week'], ['Opp', 'Opponent (@ = away)'], ['Result', 'Result, or game day'],
+    ['EPA O', 'Offense EPA per play (garbage time removed)'], ['EPA D', 'EPA per play allowed by the defense (lower is better)'],
+    ...S.map((c): [string, string] => [c.label, c.title]),
+  ];
+  const statCells = (v: (number | null)[] | null, extra = 0): HTMLElement[] => S.map((c, i) => {
+    const x = v?.[i];
+    return el('td', { className: 'num', text: x === null || x === undefined ? '-' : x.toFixed(c.decimals + extra) });
+  });
+  const played = sc.games.filter((g) => g.result).length;
+  return el('section', { className: 'shop' }, [
+    el('h3', { text: 'Schedule' }),
+    el('div', { className: 'table-wrap' }, [
+      el('table', { className: 'log' }, [
+        el('thead', {}, [el('tr', {}, head.map(([h, title], i) => el('th', { text: h, className: i < 2 ? 'left' : '', attrs: { scope: 'col', title } })))]),
+        el('tbody', {}, sc.games.map((g) => el('tr', { className: g.result ? '' : 'upcoming' }, [
+          el('th', { className: 'num left', attrs: { scope: 'row' }, text: String(g.wk) }),
+          el('td', { className: 'left' }, [
+            teams.has(g.opp) ? el('button', { className: 'link', text: `${g.home ? '' : '@'}${g.opp}`, attrs: { 'data-sched': `${sc.team}-${g.wk}` }, onClick: () => openTeam(g.opp) }) : el('span', { text: `${g.home ? '' : '@'}${g.opp}` }),
+          ]),
+          el('td', { className: 'num', text: g.result || fmtDate(g.gameday) }),
+          el('td', { className: 'num', text: epaText(g.offEpa) }),
+          el('td', { className: 'num', text: epaText(g.defEpa) }),
+          ...statCells(g.v),
+        ]))),
+        played ? el('tfoot', {}, [el('tr', {}, [
+          el('th', { className: 'left', attrs: { scope: 'row' }, text: 'Avg' }),
+          el('td', { className: 'left', attrs: { colspan: '2' }, text: `${played} played` }),
+          el('td', { className: 'num', text: epaText(sc.season.offEpa) }),
+          el('td', { className: 'num', text: epaText(sc.season.defEpa) }),
+          ...statCells(sc.season.v, TEAM_SCHEDULE.avgExtraDecimals),
+        ])]) : null,
+      ]),
+    ]),
+    el('p', { className: 'fine', text: `EPA O / EPA D = expected points added per play on offense, and allowed on defense, with garbage time removed (the plays behind the unit grades; not opponent-adjusted). Avg = per game; EPA over all plays. ${S.map((c) => `${c.label} = ${c.title}`).join(' · ')}. Yards and sacks from the nflverse weekly player stats, summed by team. Tap an opponent for its sheet.` }),
+  ]);
+}
+
 function teamSheet(t: TeamResult): HTMLElement {
   const list = (ids: string[]) => el('ol', { className: 'players' }, ids.map((id) => players.get(id)).filter((p): p is PlayerResult => !!p).map((p) => playerCard(p, { showTeam: true })));
   let shop: HTMLElement;
@@ -365,6 +421,7 @@ function teamSheet(t: TeamResult): HTMLElement {
           el('div', {}, [el('dt', { text: 'Strength' }), el('dd', { className: 'num', text: `${signed(t.strength, 1)} pts/game` })]),
         ]),
       ]),
+      scheduleSection(schedules.get(t.team)),
       el('section', { className: 'units' }, [metricChips(), ...UNIT_KEYS.map((k) => unitBar(t, k))]),
       el('section', { className: 'units' }, [
         el('h3', { text: 'Offensive line' }),
@@ -390,7 +447,7 @@ function closeTeam(): void {
   state.team = null;
   setHash('');
   draw();
-  if (last) document.querySelector<HTMLElement>(`tr[data-team="${last}"]`)?.focus();
+  if (last) focusOn(`tr[data-team="${last}"], [data-team-open="${last}"]`);
 }
 
 // ------------------------------------------------------------------ player page
@@ -451,6 +508,33 @@ function contractBox(c: ContractDetail | null): HTMLElement {
   ]);
 }
 
+/** His latest practice status and game designation (and a reserve list), at the top of his page. */
+function statusBox(st: PlayerStatus | undefined, team: string): HTMLElement | null {
+  // a data file from before player statuses: say nothing rather than "not listed"
+  if (!st) return null;
+  const r = st.report;
+  const current = !!r && r.wk === st.reportWeek;
+  const tags = [
+    st.reserve ? el('span', { className: 'd-tag d-inj', text: st.reserve }) : null,
+    current && r.practice ? el('span', { className: `d-tag ${tagClass(r.practice)}`, text: `${r.practice} practice` }) : null,
+    current && r.game ? el('span', { className: `d-tag ${tagClass(r.game)}`, text: r.game }) : null,
+  ].filter((x): x is HTMLElement => !!x);
+  const lineOf = (x: NonNullable<PlayerStatus['report']>): string => [x.practice ? `${x.practice} practice` : null, x.game, x.injury || null].filter(Boolean).join(' · ');
+  const text = !st.reportWeek
+    ? `No ${team} injury report on file yet.`
+    : !r
+      ? `Not on any injury report this season (${team}'s newest is week ${st.reportWeek}).`
+      : current
+        ? `Week ${r.wk} report: ${lineOf(r) || 'listed, no detail'}.`
+        : `Not on ${team}'s week ${st.reportWeek} injury report (last listed week ${r.wk}: ${lineOf(r) || 'no detail'}).`;
+  return el('section', { className: 'shop' }, [
+    el('h3', { text: 'Practice status' }),
+    tags.length ? el('p', { className: 'st-tags' }, tags) : null,
+    el('p', { className: 'p-contract', text }),
+    el('p', { className: 'fine', text: `${INJURY.practiceNote} Week = the newest report his team has filed (teams file on different days, none on a bye). From the NFL's injury reports via nflverse.` }),
+  ]);
+}
+
 function playerSheet(p: PlayerProfile): HTMLElement {
   const ranked = players.get(p.id);
   return el('div', { className: 'sheet-backdrop', onClick: (e) => { if (e.target === e.currentTarget) closePlayer(); } }, [
@@ -463,6 +547,7 @@ function playerSheet(p: PlayerProfile): HTMLElement {
         el('button', { className: 'close', text: 'Close', onClick: closePlayer }),
       ]),
       compareButton(p.id),
+      statusBox(p.status, p.team),
       ranked ? el('section', { className: 'shop' }, [
         el('h3', { text: `#${ranked.rank} of ${ranked.qualifiedAtPosition} ${POSITIONS[ranked.group].label}s` }),
         statLine(ranked),
@@ -684,7 +769,9 @@ function playersView(): HTMLElement {
       ]))),
   ]);
   const group = state.group;
-  const list = data.players.filter((p) => p.group === group).sort((a, b) => score(b) - score(a));
+  const atPosition = data.players.filter((p) => p.group === group);
+  const list = atPosition.filter((p) => state.prodTeam === 'all' || p.team === state.prodTeam).sort((a, b) => score(b) - score(a));
+  const teamCodes = [...teams.keys()].sort();
   const pos = POSITIONS[group];
   const weights = Object.entries(pos.weights).map(([k, w]) => `${STATS[k as keyof typeof STATS].label} ${Math.round(100 * (w ?? 0))}%`).join(' · ');
   const minWord = { dropbacks: 'dropbacks', carries: 'carries', targets: 'targets', defenseSnaps: 'defense snaps' }[pos.minimum.per];
@@ -692,9 +779,15 @@ function playersView(): HTMLElement {
     profiles.size ? playerSearch() : null,
     el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, groups),
     modes,
-    el('h2', { className: 'pos-title', text: `${pos.label}s` }),
-    el('p', { className: 'fine', text: `${weights}. Minimum ${pos.minimum.perTeamGame} ${minWord} per team game. ${list.length} qualified.` }),
-    el('ol', { className: 'players' }, list.map((p, i) => playerCard(p, { showTeam: true, rank: i + 1 }))),
+    el('div', { className: 'picks' }, [
+      selectBox('Team', state.prodTeam, [['all', 'All teams'], ...teamCodes.map((t): [string, string] => [t, `${t} ${teams.get(t)?.name ?? ''}`.trim()])], (v) => { state.prodTeam = v; draw(); }),
+      state.prodTeam !== 'all' ? el('button', { className: 'more', text: `${state.prodTeam} schedule and grades`, attrs: { 'data-team-open': state.prodTeam }, onClick: () => openTeam(state.prodTeam) }) : null,
+    ]),
+    el('h2', { className: 'pos-title', text: `${state.prodTeam === 'all' ? '' : `${state.prodTeam} `}${pos.label}s` }),
+    el('p', { className: 'fine', text: `${weights}. Minimum ${pos.minimum.perTeamGame} ${minWord} per team game. ${atPosition.length} qualified${state.prodTeam === 'all' ? '' : `, ${list.length} on ${state.prodTeam}; the score and #rank are still league-wide`}.` }),
+    list.length
+      ? el('ol', { className: 'players' }, list.map((p, i) => playerCard(p, { showTeam: true, rank: i + 1 })))
+      : el('p', { className: 'fine', text: `No qualified ${pos.label.toLowerCase()}s on ${state.prodTeam} yet.` }),
   ]);
 }
 
@@ -859,7 +952,7 @@ function selectBox(label: string, value: string, options: [string, string][], on
     if (v === value) o.selected = true;
     return o;
   }));
-  s.addEventListener('change', () => onChange(s.value));
+  s.addEventListener('change', () => { onChange(s.value); focusOn(`select[aria-label="${label}"]`); });
   return el('label', { className: 'pick-wrap' }, [el('span', { className: 'pick-label', text: label }), s]);
 }
 
@@ -1159,7 +1252,7 @@ function practiceView(): HTMLElement {
 }
 
 /** Green when the offense has an edge, red when the defense does, plain when even (MATCHUP.edgeWords[1] and [2]). */
-const edgeClass = (edge: number): string => (edge >= (MATCHUP.edgeWords[1]?.[0] ?? 0) ? 'd-up' : edge < (MATCHUP.edgeWords[2]?.[0] ?? 0) ? 'd-inj' : 'd-even');
+const edgeClass = (edge: number, words: [number, string][] = MATCHUP.edgeWords): string => (edge >= (words[1]?.[0] ?? 0) ? 'd-up' : edge < (words[2]?.[0] ?? 0) ? 'd-inj' : 'd-even');
 
 function clashRow(label: string, c: UnitClash): HTMLElement {
   return el('div', { className: 'm-clash' }, [
@@ -1194,8 +1287,64 @@ function matchupSide(sd: MatchupSide): HTMLElement {
   ]);
 }
 
+function matchupPlayerRow(p: MatchupPlayer, i: number): HTMLElement {
+  const inner = [
+    el('span', { className: 'p-rank num', text: String(i + 1) }),
+    el('span', { className: 'p-main' }, [
+      el('span', { className: 'p-name', text: p.name }),
+      el('span', { className: 'p-meta', text: `${p.team} ${p.group} · #${p.rank} of ${p.qualified} · vs ${p.opp} ${p.vs ? `${p.vs.label} ${ordinal(p.vs.rank)}` : '(no grade)'}` }),
+      el('span', { className: 'mp-tags' }, [
+        p.word !== null && p.edge !== null ? el('span', { className: `d-tag ${edgeClass(p.edge, MATCHUP.playerEdgeWords)}`, text: `${p.word} ${p.edge >= 0 ? '+' : ''}${p.edge}` }) : null,
+        p.status ? el('span', { className: `d-tag ${tagClass(p.status)}`, text: p.status }) : null,
+      ]),
+    ]),
+    el('span', { className: 'mp-scores' }, [
+      el('span', { className: 'mp-score' }, [el('span', { className: `p-score num ${band(p.score)}`, text: String(Math.round(p.score)) }), el('span', { className: 'mp-cap', text: p.group })]),
+      el('span', { className: 'mp-score' }, [
+        el('span', { className: `p-score num ${p.vs ? band(p.vs.grade) : ''}`, text: p.vs ? String(p.vs.grade) : '-' }),
+        el('span', { className: 'mp-cap', text: p.vs ? `${p.opp} ${p.vs.label}` : p.opp }),
+      ]),
+    ]),
+  ];
+  return el('li', { className: 'player' }, [
+    profiles.has(p.id)
+      ? el('button', { className: 'player-head', attrs: { 'data-mp': p.id }, onClick: () => openPlayer(p.id, `[data-mp="${p.id}"]`) }, inner)
+      : el('div', { className: 'player-head' }, inner),
+  ]);
+}
+
+function matchupPlayersView(): HTMLElement {
+  const ms = data.thisWeek?.matchups ?? [];
+  const all = data.thisWeek?.matchupPlayers ?? [];
+  if (state.mGame !== 'all' && !ms.some((m) => m.id === state.mGame)) state.mGame = 'all';
+  const list = all.filter((p) => p.group === state.mGroup && (state.mGame === 'all' || p.game === state.mGame));
+  if (state.mSort === 'edge') list.sort((a, b) => (b.edge ?? -Infinity) - (a.edge ?? -Infinity) || b.score - a.score);
+  const vs = MATCHUP.versus[state.mGroup];
+  const against = 'unit' in vs ? `the opponent's ${UNITS[vs.unit].long.toLowerCase()} grade` : `the opponent's ${LINE[vs.line].label.toLowerCase()} grade (${LINE[vs.line].stat})`;
+  return el('div', {}, [
+    el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Position' } }, POSITION_GROUPS.map((g) => chip(g, state.mGroup === g, () => { state.mGroup = g; draw(); }))),
+    el('div', { className: 'picks' }, [
+      selectBox('Game', state.mGame, [['all', 'All games'], ...ms.map((m): [string, string] => [m.id, `${m.away} @ ${m.home}`])], (v) => { state.mGame = v; draw(); }),
+      selectBox('Sort', state.mSort, [['score', 'Player score'], ['edge', 'Matchup edge']], (v) => { state.mSort = v as 'score' | 'edge'; draw(); }),
+    ]),
+    el('p', { className: 'fine', text: `${POSITIONS[state.mGroup].label}s: production score (0-100, as on the Production tab) against ${against}, 0-100 with 50 = average, rank 1st = best. Edge = his score minus that grade (${MATCHUP.playerEdgeWords.map(([n, w]) => `${w} ${n >= 0 ? '+' : ''}${n} or more`).join(', ')}, else ${MATCHUP.playerFallbackWord.toLowerCase()}). Tags: this week's game designation. Tap a player.` }),
+    list.length
+      ? el('ol', { className: 'players' }, list.map(matchupPlayerRow))
+      : el('p', { className: 'fine', text: 'No ranked players at this position in this game.' }),
+  ]);
+}
+
 function matchupsView(): HTMLElement {
   const ms = data.thisWeek?.matchups ?? [];
+  const toggle = data.thisWeek?.matchupPlayers ? el('div', { className: 'chips', attrs: { role: 'group', 'aria-label': 'Matchups view' } }, [
+    chip('Games', state.mView === 'games', () => { state.mView = 'games'; draw(); focusOn('[data-sub="m-games"]'); }, 'm-games'),
+    chip('Players', state.mView === 'players', () => { state.mView = 'players'; draw(); focusOn('[data-sub="m-players"]'); }, 'm-players'),
+  ]) : null;
+  if (toggle && state.mView === 'players' && ms.length) return el('div', { className: 'rankings' }, [
+    el('h2', { className: 'pos-title', text: `Week ${data.thisWeek?.week ?? ''} matchups: players` }),
+    toggle,
+    matchupPlayersView(),
+  ]);
   const head = [
     el('h2', { className: 'pos-title', text: `Week ${data.thisWeek?.week ?? ''} matchups` }),
     el('p', { className: 'fine', text: `Each offense against the other defense: unit grades (0-100 from opponent-adjusted EPA/play, rank in brackets) and the gap between them; what the defense allows per game by position (adjusted, rank 1 = allows the most); the offense's top red zone players (share of the team's targets + carries ${RED_ZONE.zones.map((z) => `inside the ${z.maxYardline}`).join(' / ')}, season); personnel share of snaps; and players listed Out, Doubtful or Questionable. Tap a game.` }),
@@ -1203,6 +1352,7 @@ function matchupsView(): HTMLElement {
   if (!ms.length) return el('div', { className: 'rankings' }, [...head, el('p', { className: 'fine', text: 'No games this week.' })]);
   return el('div', { className: 'rankings' }, [
     ...head,
+    toggle,
     el('ul', { className: 'players' }, ms.map((m) => {
       const open = state.open.has(`m-${m.id}`);
       const result = m.homeScore !== null && m.awayScore !== null ? `Final ${m.away} ${m.awayScore}, ${m.home} ${m.homeScore}` : fmtDate(m.gameday);
@@ -1214,7 +1364,10 @@ function matchupsView(): HTMLElement {
             el('span', { className: 'p-meta', text: `${result} · ${edges}` }),
           ]),
         ]),
-        open ? el('div', { className: 'player-body' }, m.sides.map((sd) => matchupSide(sd))) : null,
+        open ? el('div', { className: 'player-body' }, [
+          ...m.sides.map((sd) => matchupSide(sd)),
+          toggle ? el('button', { className: 'more', text: 'Players in this game', onClick: () => { state.mView = 'players'; state.mGame = m.id; draw(); focusOn('[data-sub="m-players"]'); } }) : null,
+        ]) : null,
       ]);
     })),
   ]);
@@ -1258,7 +1411,7 @@ function footer(): HTMLElement {
     el('p', { text: `Red zone usage (This week): targets and carries from play-by-play with the ball snapped ${RED_ZONE.zones.map((z) => `at or inside the ${z.maxYardline}`).join(' or ')}, by player and week, with each player's share of his team's. A sack or an aborted play is not a target; kneels, spikes and two-point tries are left out.` }),
     el('p', { text: `Depth charts (team sheets): ESPN's depth charts as nflverse snapshots them (about twice a day). The newest snapshot is compared with the newest one from at least ${DEPTH.minDaysBefore} ${DEPTH.minDaysBefore === 1 ? 'day' : 'days'} earlier: New = not on that slot before, Up / Down = moved on it, Off the chart = was on it. Designations are this week's injury report (nflverse injuries) or a reserve list on the weekly roster.` }),
     el('p', { text: `Personnel (This week), ${PERSONNEL.label.toLowerCase()}: average backs (fullbacks included), tight ends and receivers on the field per offensive snap = that position's offense snaps over the team's (PFR snap counts). If a team only used 1 or 2 tight ends, its 2-TE share would be the TE average minus 1; real teams spread wider, so that share is scaled down by factors fitted on ${PERSONNEL.fittedOn}: heavy (2+ TE or 2+ RB) = ${PERSONNEL.heavyScale} × ((TE − 1) + (RB − 1)), 12 = ${PERSONNEL.twoTeScale} × (TE − 1), 11 = 1 − heavy − (WR − 3), each part clamped to 0-1. Against FTN's exact ${PERSONNEL.fittedOn} participation (fitted leaving each team out): over a season, mean error about 4 points for 11, 5-6 for 12 and 4 for heavy, rank correlation 0.85 / 0.71 / 0.90; for one game about 6 / 8 / 5 points. Exact current numbers: ${PERSONNEL.exactLink.url}. When FTN participation for a season is on nflverse, the exact shares and EPA per play by grouping are shown for it (${PERSONNEL.ftnCredit}; tables derived from it are shared under the same license).` }),
-    el('p', { text: `Matchups (This week): for each game this week, each offense's pass and rush grades against the other team's pass and rush defense grades (EPA-based, as on the board), the gap between them (${MATCHUP.edgeWords.map(([n, w]) => `${w} ${n >= 0 ? '+' : ''}${n} or more`).join(', ')}, else ${MATCHUP.fallbackWord.toLowerCase()}), and the other This week views for the two teams.` }),
+    el('p', { text: `Matchups (This week): for each game this week, each offense's pass and rush grades against the other team's pass and rush defense grades (EPA-based, as on the board), the gap between them (${MATCHUP.edgeWords.map(([n, w]) => `${w} ${n >= 0 ? '+' : ''}${n} or more`).join(', ')}, else ${MATCHUP.fallbackWord.toLowerCase()}), and the other This week views for the two teams. Players view: every ranked player in a game this week, his production score against the grade of the opposing unit his position faces (${POSITION_GROUPS.map((g) => `${g} vs ${MATCHUP.versus[g].label}`).join(', ')}); pass pro is the line's team grade from pressure rate allowed, not a per-lineman stat.` }),
     el('p', { text: `Base salary left: the part of this season's base salary still to be paid (${TRADE_COST.payWeeks} weekly checks), which a team trading for the player takes on. It leaves out bonuses and incentives; the signing bonus stays with the old team. Team cap room isn't shown: the open contracts data has no dead money, so it can't be computed reliably.` }),
     el('h3', { text: 'Credits' }),
     el('p', { text: 'Data from nflverse (nflverse-data releases): play-by-play and EPA from nflfastR, schedules, weekly rosters and player stats, trades and draft picks, NFL Next Gen Stats, Pro Football Reference advanced stats and snap counts, and contracts from OverTheCap. Thanks to the nflverse maintainers and their upstream sources. Not affiliated with the NFL or any team.' }),

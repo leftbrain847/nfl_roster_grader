@@ -913,6 +913,43 @@ export const PERSONNEL_SOURCE: PersonnelSourceConfig = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Team schedule: every game with the team's core stats (team sheets)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** One column: a game-log column (GAME_LOG.columns[kind], found by title) summed over the team's own players or the
+ * opponent's, in that game. Several sources are added together. */
+export interface ScheduleStat {
+  label: string;
+  title: string;
+  rows: 'team' | 'opp';
+  from: [LogKind, string][];
+  decimals: number;
+}
+
+export interface TeamScheduleConfig {
+  /** EPA per play (offense, and allowed by the defense) from the same garbage-time-filtered plays as the unit grades. */
+  epaDecimals: number;
+  /** Season averages per game show this many more decimals than the column. */
+  avgExtraDecimals: number;
+  stats: ScheduleStat[];
+}
+
+export const TEAM_SCHEDULE: TeamScheduleConfig = {
+  epaDecimals: 2,
+  avgExtraDecimals: 1,
+  stats: [
+    { label: 'PaYd', title: 'Passing yards', rows: 'team', from: [['QB', 'Passing yards']], decimals: 0 },
+    { label: 'RuYd', title: 'Rushing yards', rows: 'team', from: [['QB', 'Rushing yards'], ['SKILL', 'Rushing yards']], decimals: 0 },
+    { label: 'SkA', title: 'Sacks allowed', rows: 'team', from: [['QB', 'Sacks taken']], decimals: 0 },
+    { label: 'IntT', title: 'Interceptions thrown', rows: 'team', from: [['QB', 'Interceptions thrown']], decimals: 0 },
+    { label: 'PaYdA', title: 'Passing yards allowed', rows: 'opp', from: [['QB', 'Passing yards']], decimals: 0 },
+    { label: 'RuYdA', title: 'Rushing yards allowed', rows: 'opp', from: [['QB', 'Rushing yards'], ['SKILL', 'Rushing yards']], decimals: 0 },
+    { label: 'Sck', title: 'Sacks by the defense', rows: 'team', from: [['DEF', 'Sacks']], decimals: 1 },
+    { label: 'Int', title: 'Interceptions by the defense', rows: 'team', from: [['DEF', 'Interceptions']], decimals: 0 },
+  ],
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Matchups: each game this week, unit against unit
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -924,6 +961,14 @@ export interface MatchupConfig {
   redZonePlayers: number;
   /** Game designations listed on a matchup card (others, e.g. a full-practice note, are left to the Practice view). */
   statuses: string[];
+  /**
+   * Players view: what each position's player is matched against on the other team, a unit grade (UNITS) or an
+   * offensive-line grade (LINE). Edge = his production score - that grade (both 0-100, 50 = average).
+   */
+  versus: Record<PositionGroup, { unit: UnitKey; label: string } | { line: LineKey; label: string }>;
+  /** Words for a player's edge, best first (positive = favors the player, on either side of the ball). */
+  playerEdgeWords: [number, string][];
+  playerFallbackWord: string;
 }
 
 export const MATCHUP: MatchupConfig = {
@@ -931,6 +976,19 @@ export const MATCHUP: MatchupConfig = {
   fallbackWord: 'Big edge defense',
   redZonePlayers: 3,
   statuses: ['Out', 'Doubtful', 'Questionable'],
+  versus: {
+    QB: { unit: 'passDefense', label: 'pass D' },
+    RB: { unit: 'rushDefense', label: 'run D' },
+    WR: { unit: 'passDefense', label: 'pass D' },
+    TE: { unit: 'passDefense', label: 'pass D' },
+    EDGE: { line: 'passPro', label: 'pass pro' },
+    IDL: { line: 'passPro', label: 'pass pro' },
+    LB: { unit: 'rushOffense', label: 'run O' },
+    CB: { unit: 'passOffense', label: 'pass O' },
+    S: { unit: 'passOffense', label: 'pass O' },
+  },
+  playerEdgeWords: [[20, 'Big edge'], [8, 'Edge'], [-8, 'Even'], [-20, 'Tough']],
+  playerFallbackWord: 'Very tough',
 };
 
 // ---------------------------------------------------------------------------------------------------------------

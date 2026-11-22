@@ -357,6 +357,16 @@ export interface GameLogRow {
   v: number[];
 }
 
+/** A player's latest injury report line and reserve status, for his page. */
+export interface PlayerStatus {
+  /** Newest week his team has filed an injury report (0 = none yet): if report.wk is older, he isn't on it. */
+  reportWeek: number;
+  /** His most recent line on any report this season (short labels, as on the Practice view), or null. */
+  report: { wk: number; practice: string | null; game: string | null; injury: string } | null;
+  /** A reserve list from his latest weekly roster row (INJURY.rosterStatus), or null. */
+  reserve: string | null;
+}
+
 /** One player's page: game log and contract. Every skill player and defender with a stat this season has one. */
 export interface PlayerProfile {
   id: string;
@@ -366,6 +376,8 @@ export interface PlayerProfile {
   kind: LogKind;
   log: GameLogRow[];
   contract: ContractDetail | null;
+  /** Injury report and reserve status; absent only in a data file from before it. */
+  status?: PlayerStatus;
 }
 
 /** A fantasy-relevant player and what his points cost. */
@@ -693,6 +705,27 @@ export interface Matchup {
   sides: [MatchupSide, MatchupSide];
 }
 
+/** A ranked player playing this week, his production score against the opposing unit he faces (MATCHUP.versus). */
+export interface MatchupPlayer {
+  id: string;
+  name: string;
+  team: string;
+  opp: string;
+  /** The game's id (Matchup.id). */
+  game: string;
+  group: PositionGroup;
+  score: number;
+  rank: number;
+  qualified: number;
+  /** The opposing unit or line grade; null when the opponent has no such grade (e.g. PFR data missing). */
+  vs: { label: string; grade: number; rank: number } | null;
+  /** score - vs.grade, and its word. */
+  edge: number | null;
+  word: string | null;
+  /** This week's game designation (Out, Doubtful, Questionable), or null. */
+  status: string | null;
+}
+
 /** The This week tab. Optional in the output so a data file from before it still loads. */
 export interface ThisWeek {
   /** The first week with a game not yet played (or the last week, after the season). */
@@ -702,6 +735,30 @@ export interface ThisWeek {
   personnel?: Personnel;
   practice?: PracticeReport;
   matchups?: Matchup[];
+  /** Players view of the matchups: every ranked player in a game this week. */
+  matchupPlayers?: MatchupPlayer[];
+}
+
+/** One game on a team's schedule. Stats are null for a game not played yet (or not in the weekly stats yet). */
+export interface ScheduleGame {
+  wk: number;
+  opp: string;
+  home: boolean;
+  gameday: string;
+  /** "W 24-17", or empty before the game. */
+  result: string;
+  /** EPA per play on offense, and allowed on defense (garbage time removed, as in the unit grades). */
+  offEpa: number | null;
+  defEpa: number | null;
+  /** One value per TEAM_SCHEDULE.stats column. */
+  v: (number | null)[] | null;
+}
+
+export interface TeamSchedule {
+  team: string;
+  games: ScheduleGame[];
+  /** Season: EPA per play over all plays, and each column's average per game with stats. */
+  season: { offEpa: number | null; defEpa: number | null; v: (number | null)[] };
 }
 
 export interface ModelOutput {
@@ -723,4 +780,6 @@ export interface ModelOutput {
   thisWeek?: ThisWeek;
   /** Team depth charts (team sheets). */
   depthCharts?: DepthChartView[];
+  /** Every team's schedule with core stats by game (team sheets). */
+  schedules?: TeamSchedule[];
 }

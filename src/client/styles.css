@@ -303,3 +303,16 @@ button.d-link .d-name { color: var(--accent); }
 .cmp-best .cmp-val { color: var(--buy); font-weight: 800; }
 .cmp-sec td { text-align: left; font-family: var(--font-display); font-stretch: condensed; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); background: var(--bg); }
 .cmp-remove { display: block; margin-top: 4px; border: 0; background: none; padding: 2px 0; color: var(--sell); font-size: 12px; font-weight: 600; min-height: 28px; }
+
+/* team sheet schedule: opponent links and games not played yet */
+.log button.link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.log tr.upcoming td { color: var(--muted); }
+
+/* matchups, players view: his score beside the opposing unit's grade */
+.mp-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.mp-tags:empty { display: none; }
+.mp-scores { display: flex; gap: 6px; flex: none; }
+.mp-score { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 4.2em; }
+.mp-cap { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.15; }
+/* player page status tags: one row, left-aligned */
+.st-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }

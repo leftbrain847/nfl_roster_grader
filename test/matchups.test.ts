@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MATCHUP } from '../src/model/config.ts';
-import { buildMatchups, clash, edgeWord } from '../src/model/matchups.ts';
-import type { Game, TeamResult } from '../src/model/types.ts';
+import { buildMatchups, clash, edgeWord, matchupPlayers, playerEdgeWord } from '../src/model/matchups.ts';
+import type { Game, Matchup, PlayerResult, TeamResult } from '../src/model/types.ts';
 
 const unit = (grade: number, rank: number) => ({ adjusted: 0, raw: 0, plays: 100, grade, rank });
 const team = (code: string, po: number, ro: number, pd: number, rd: number): TeamResult => ({
@@ -46,5 +46,29 @@ describe('matchups', () => {
     expect(away.status.map((s) => s.id)).toEqual(['x']);
     expect(home.redZone).toEqual([]);
     expect(away.personnel).toBeNull();
+  });
+
+  it('players view: each ranked player in a game this week against the opposing unit his position faces', () => {
+    const teams = [
+      { ...team('AAA', 70, 40, 60, 50), line: { passPro: { value: 30, grade: 35, rank: 25 }, runBlock: null } },
+      { ...team('HHH', 30, 55, 20, 65), line: { passPro: null, runBlock: null } },
+      { ...team('ZZZ', 50, 50, 50, 50), line: { passPro: null, runBlock: null } },
+    ] as TeamResult[];
+    const ms = [{ id: 'g1', away: 'AAA', home: 'HHH' }] as Matchup[];
+    const pl = (id: string, t: string, group: PlayerResult['group'], production: number): PlayerResult =>
+      ({ id, name: id.toUpperCase(), team: t, group, scores: { production }, rank: 1, qualifiedAtPosition: 10 } as PlayerResult);
+    const out = matchupPlayers(ms, [pl('qb', 'AAA', 'QB', 90), pl('edge', 'HHH', 'EDGE', 60), pl('cb', 'HHH', 'CB', 40), pl('idl', 'AAA', 'IDL', 50), pl('bye', 'ZZZ', 'QB', 99)], teams, {
+      week: 4, published: true, latestWeek: 4, note: '', teams: { HHH: [{ id: 'edge', name: 'E', pos: 'DE', practice: 'Limited', game: 'Questionable', injury: 'Knee' }] },
+    });
+    expect(out.map((p) => p.id)).toEqual(['qb', 'edge', 'idl', 'cb']); // best score first; the team on a bye is left out
+    expect(out[0]).toMatchObject({ opp: 'HHH', game: 'g1', vs: { label: MATCHUP.versus.QB.label, grade: 20, rank: 3 }, edge: 70, word: 'Big edge', status: null });
+    // an edge rusher faces the other team's pass protection
+    expect(out[1]).toMatchObject({ opp: 'AAA', vs: { label: 'pass pro', grade: 35, rank: 25 }, edge: 25, status: 'Questionable' });
+    // no line grade for the opponent: listed without a matchup
+    expect(out[2]).toMatchObject({ vs: null, edge: null, word: null });
+    // a corner faces the other team's pass offense
+    expect(out[3]).toMatchObject({ vs: { grade: 70 }, edge: -30, word: MATCHUP.playerFallbackWord });
+    expect(playerEdgeWord(0)).toBe('Even');
+    expect(playerEdgeWord(-10)).toBe('Tough');
   });
 });
